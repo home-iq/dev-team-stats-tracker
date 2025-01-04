@@ -21,6 +21,7 @@ const Index = () => {
         pullRequests: Math.floor(Math.random() * 100),
         commits: Math.floor(Math.random() * 500),
         repositories: Math.floor(Math.random() * 20),
+        linesOfCode: Math.floor(Math.random() * 50000),
       }));
     },
   });
@@ -41,7 +42,7 @@ const Index = () => {
           >
             <div className="max-w-7xl mx-auto">
               <div className="mb-8">
-                <h1 className="text-4xl font-bold mb-2">Team Dashboard</h1>
+                <h1 className="text-4xl font-bold mb-2">myHomeIQ Dev Team Dashboard</h1>
                 <p className="text-muted-foreground">
                   Track your team's contributions across all repositories
                 </p>

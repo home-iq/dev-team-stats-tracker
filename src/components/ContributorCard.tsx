@@ -1,7 +1,7 @@
 import { Avatar } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowUpRight, GitCommit, GitPullRequest, Star } from "lucide-react";
+import { ArrowUpRight, GitCommit, GitPullRequest, Star, Line } from "lucide-react";
 import { motion } from "framer-motion";
 
 interface ContributorCardProps {
@@ -12,6 +12,7 @@ interface ContributorCardProps {
     pullRequests: number;
     commits: number;
     repositories: number;
+    linesOfCode: number;
   };
   onClick: () => void;
 }
@@ -24,7 +25,7 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
       transition={{ duration: 0.3 }}
     >
       <Card
-        className="p-6 cursor-pointer hover:shadow-lg transition-shadow duration-300 relative overflow-hidden group"
+        className="p-6 cursor-pointer hover:shadow-lg transition-shadow duration-300 relative overflow-hidden group bg-white dark:bg-gray-800"
         onClick={onClick}
       >
         <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
@@ -50,6 +51,10 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
               <Badge variant="secondary" className="flex items-center gap-1">
                 <Star className="w-3 h-3" />
                 {contributor.repositories} repos
+              </Badge>
+              <Badge variant="secondary" className="flex items-center gap-1">
+                <Line className="w-3 h-3" />
+                {contributor.linesOfCode} lines
               </Badge>
             </div>
           </div>
