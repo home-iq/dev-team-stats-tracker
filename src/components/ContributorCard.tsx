@@ -1,7 +1,7 @@
 import { Avatar } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowUpRight, GitCommit, GitPullRequest, Star, Line } from "lucide-react";
+import { ArrowUpRight, GitCommit, GitPullRequest, Star, Code2 } from "lucide-react";
 import { motion } from "framer-motion";
 
 interface ContributorCardProps {
@@ -53,7 +53,7 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
                 {contributor.repositories} repos
               </Badge>
               <Badge variant="secondary" className="flex items-center gap-1">
-                <Line className="w-3 h-3" />
+                <Code2 className="w-3 h-3" />
                 {contributor.linesOfCode} lines
               </Badge>
             </div>

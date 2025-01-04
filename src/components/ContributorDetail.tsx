@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
-import { ChevronLeft, GitCommit, GitPullRequest, Line, Star } from "lucide-react";
+import { ChevronLeft, GitCommit, GitPullRequest, Code2, Star } from "lucide-react";
 import { motion } from "framer-motion";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
@@ -100,7 +100,7 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
         </Card>
         <Card className="p-4 bg-white dark:bg-gray-800">
           <div className="flex items-center gap-2">
-            <Line className="h-4 w-4 text-muted-foreground" />
+            <Code2 className="h-4 w-4 text-muted-foreground" />
             <div className="flex-1">
               <p className="text-sm text-muted-foreground">Lines of Code</p>
               <p className="text-2xl font-semibold">{contributor?.linesOfCode}</p>
