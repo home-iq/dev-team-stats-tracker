@@ -6,7 +6,7 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Search, ChevronLeft, ChevronRight } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { format, subMonths, startOfMonth } from "date-fns";
+import { format, subMonths } from "date-fns";
 
 const Index = () => {
   const [selectedContributor, setSelectedContributor] = useState<string | null>(null);
@@ -112,15 +112,11 @@ const Index = () => {
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
                 {filteredContributors?.map((contributor) => (
-                  <div key={contributor.login} className="relative">
-                    <div className="absolute -top-3 -left-3 z-10 w-8 h-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center font-bold text-sm">
-                      #{contributor.rank}
-                    </div>
-                    <ContributorCard
-                      contributor={contributor}
-                      onClick={() => setSelectedContributor(contributor.login)}
-                    />
-                  </div>
+                  <ContributorCard
+                    key={contributor.login}
+                    contributor={contributor}
+                    onClick={() => setSelectedContributor(contributor.login)}
+                  />
                 ))}
               </div>
             </div>

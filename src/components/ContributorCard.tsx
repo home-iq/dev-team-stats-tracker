@@ -29,12 +29,8 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
         className="p-6 cursor-pointer hover:shadow-lg transition-shadow duration-300 relative overflow-hidden group bg-white dark:bg-gray-800"
         onClick={onClick}
       >
-        <div className="absolute top-4 left-4 z-10 bg-primary text-primary-foreground w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm">
+        <div className="absolute top-4 right-4 z-10 bg-primary text-primary-foreground w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm">
           #{contributor.rank}
-        </div>
-        
-        <div className="absolute top-3 right-3 opacity-0 group-hover:opacity-100 transition-opacity">
-          <ArrowUpRight className="w-5 h-5 text-muted-foreground" />
         </div>
         
         <div className="flex items-start space-x-4">
