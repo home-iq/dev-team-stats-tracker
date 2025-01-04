@@ -13,6 +13,7 @@ interface ContributorCardProps {
     commits: number;
     repositories: number;
     linesOfCode: number;
+    rank: number;
   };
   onClick: () => void;
 }
