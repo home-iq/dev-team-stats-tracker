@@ -2,15 +2,13 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ContributorCard } from "@/components/ContributorCard";
 import { ContributorDetail } from "@/components/ContributorDetail";
-import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import { Search, ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { format, subMonths } from "date-fns";
 
 const Index = () => {
   const [selectedContributor, setSelectedContributor] = useState<string | null>(null);
-  const [searchQuery, setSearchQuery] = useState("");
   const [currentMonth, setCurrentMonth] = useState(new Date());
 
   // Format the current month for display
@@ -43,10 +41,6 @@ const Index = () => {
       rank: index + 1,
     }));
 
-  const filteredContributors = rankedContributors?.filter((contributor) =>
-    contributor.login.toLowerCase().includes(searchQuery.toLowerCase())
-  );
-
   const handlePreviousMonth = () => {
     setCurrentMonth((prev) => subMonths(prev, 1));
   };
@@ -76,26 +70,17 @@ const Index = () => {
                 </p>
               </div>
 
-              <div className="flex flex-col sm:flex-row gap-4 mb-6">
-                <div className="relative flex-1">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-muted-foreground h-4 w-4" />
-                  <Input
-                    placeholder="Search contributors..."
-                    className="pl-10"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                  />
-                </div>
-                <div className="flex items-center gap-2 bg-card rounded-lg p-2 border">
+              <div className="flex justify-center mb-8">
+                <div className="inline-flex items-center gap-4 bg-card rounded-lg p-4 border">
                   <Button
                     variant="ghost"
                     size="icon"
                     onClick={handlePreviousMonth}
-                    className="h-8 w-8"
+                    className="h-12 w-12"
                   >
-                    <ChevronLeft className="h-4 w-4" />
+                    <ChevronLeft className="h-6 w-6" />
                   </Button>
-                  <span className="text-sm font-medium min-w-32 text-center">
+                  <span className="text-2xl font-medium min-w-48 text-center">
                     {formattedMonth}
                   </span>
                   <Button
@@ -103,15 +88,15 @@ const Index = () => {
                     size="icon"
                     onClick={handleNextMonth}
                     disabled={currentMonth >= new Date()}
-                    className="h-8 w-8"
+                    className="h-12 w-12"
                   >
-                    <ChevronRight className="h-4 w-4" />
+                    <ChevronRight className="h-6 w-6" />
                   </Button>
                 </div>
               </div>
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {filteredContributors?.map((contributor) => (
+                {rankedContributors?.map((contributor) => (
                   <ContributorCard
                     key={contributor.login}
                     contributor={contributor}
