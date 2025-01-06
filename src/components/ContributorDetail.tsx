@@ -6,6 +6,7 @@ import { ChevronLeft, GitCommit, GitPullRequest, Code2, Star } from "lucide-reac
 import { motion } from "framer-motion";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { format, parseISO } from "date-fns";
 
 interface ContributorDetailProps {
   login: string;
@@ -16,7 +17,6 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
   const { data: contributor, isLoading: isLoadingContributor } = useQuery({
     queryKey: ["contributor", login],
     queryFn: async () => {
-      // Mock data for now - replace with actual GitHub API call
       return {
         login,
         name: `${login}'s Full Name`,
@@ -35,7 +35,6 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
   const { data: activities, isLoading: isLoadingActivities } = useQuery({
     queryKey: ["contributor-activity", login],
     queryFn: async () => {
-      // Mock data for now - replace with actual GitHub API call
       return Array.from({ length: 10 }, (_, i) => ({
         id: i,
         type: i % 2 === 0 ? "commit" : "pull_request",
@@ -46,6 +45,16 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
       }));
     },
   });
+
+  // Group activities by month
+  const groupedActivities = activities?.reduce((acc, activity) => {
+    const monthKey = format(parseISO(activity.date), 'MMMM yyyy');
+    if (!acc[monthKey]) {
+      acc[monthKey] = [];
+    }
+    acc[monthKey].push(activity);
+    return acc;
+  }, {} as Record<string, typeof activities>);
 
   return (
     <motion.div
@@ -111,27 +120,32 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
 
       <Card className="bg-white dark:bg-gray-800">
         <ScrollArea className="h-[calc(100vh-400px)]">
-          <div className="p-4 space-y-4">
-            {activities?.map((activity) => (
-              <Card key={activity.id} className="p-4">
-                <div className="flex items-center gap-3">
-                  {activity.type === "commit" ? (
-                    <GitCommit className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <GitPullRequest className="h-4 w-4 text-muted-foreground" />
-                  )}
-                  <div className="flex-1">
-                    <h4 className="font-medium">{activity.title}</h4>
-                    <p className="text-sm text-muted-foreground">{activity.repo}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Lines changed: {activity.linesChanged}
-                    </p>
-                  </div>
-                  <Badge variant="secondary">
-                    {new Date(activity.date).toLocaleDateString()}
-                  </Badge>
-                </div>
-              </Card>
+          <div className="p-4 space-y-6">
+            {groupedActivities && Object.entries(groupedActivities).map(([month, monthActivities]) => (
+              <div key={month} className="space-y-4">
+                <h3 className="font-semibold text-lg text-muted-foreground mb-2">{month}</h3>
+                {monthActivities.map((activity) => (
+                  <Card key={activity.id} className="p-4">
+                    <div className="flex items-center gap-3">
+                      {activity.type === "commit" ? (
+                        <GitCommit className="h-4 w-4 text-muted-foreground" />
+                      ) : (
+                        <GitPullRequest className="h-4 w-4 text-muted-foreground" />
+                      )}
+                      <div className="flex-1">
+                        <h4 className="font-medium">{activity.title}</h4>
+                        <p className="text-sm text-muted-foreground">{activity.repo}</p>
+                        <p className="text-sm text-muted-foreground">
+                          Lines changed: {activity.linesChanged}
+                        </p>
+                      </div>
+                      <Badge variant="secondary">
+                        {format(parseISO(activity.date), 'MMM d')}
+                      </Badge>
+                    </div>
+                  </Card>
+                ))}
+              </div>
             ))}
           </div>
         </ScrollArea>
