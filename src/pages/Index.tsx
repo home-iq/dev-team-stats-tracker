@@ -58,7 +58,7 @@ const Index = () => {
   };
 
   const MonthSelector = () => (
-    <div className="inline-flex items-center gap-4 bg-card rounded-lg p-4 border">
+    <div className={`inline-flex items-center gap-4 bg-card rounded-lg p-4 border ${isMobile ? 'w-full' : ''}`}>
       <Button
         variant="ghost"
         size="icon"
@@ -67,7 +67,7 @@ const Index = () => {
       >
         <ChevronLeft className="h-6 w-6" />
       </Button>
-      <span className="text-2xl font-medium min-w-48 text-center">
+      <span className="text-2xl font-medium min-w-48 text-center flex-1">
         {formattedMonth}
       </span>
       <Button
@@ -104,7 +104,7 @@ const Index = () => {
               </div>
 
               {isMobile && (
-                <div className="flex justify-center mb-8">
+                <div className="mb-8">
                   <MonthSelector />
                 </div>
               )}
