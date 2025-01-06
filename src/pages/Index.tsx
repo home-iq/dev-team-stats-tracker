@@ -5,7 +5,7 @@ import { ContributorDetail } from "@/components/ContributorDetail";
 import { Button } from "@/components/ui/button";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { format, subMonths } from "date-fns";
+import { format, subMonths, startOfMonth, isFuture } from "date-fns";
 
 const Index = () => {
   const [selectedContributor, setSelectedContributor] = useState<string | null>(null);
@@ -46,9 +46,12 @@ const Index = () => {
   };
 
   const handleNextMonth = () => {
-    const nextMonth = subMonths(new Date(), -1);
-    if (currentMonth < nextMonth) {
-      setCurrentMonth(nextMonth);
+    const nextMonth = startOfMonth(subMonths(new Date(), -1));
+    if (!isFuture(currentMonth)) {
+      setCurrentMonth((prev) => {
+        const proposedNext = subMonths(prev, -1);
+        return isFuture(proposedNext) ? prev : proposedNext;
+      });
     }
   };
 
@@ -87,7 +90,7 @@ const Index = () => {
                     variant="ghost"
                     size="icon"
                     onClick={handleNextMonth}
-                    disabled={currentMonth >= new Date()}
+                    disabled={isFuture(subMonths(currentMonth, -1))}
                     className="h-12 w-12"
                   >
                     <ChevronRight className="h-6 w-6" />
