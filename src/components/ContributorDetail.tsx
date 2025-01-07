@@ -79,40 +79,40 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
         </div>
       </div>
 
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
-        <Card className="p-4 bg-white dark:bg-gray-800">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 mb-6">
+        <Card className="p-2 md:p-4 bg-white dark:bg-gray-800">
           <div className="flex items-center gap-2">
             <GitCommit className="h-4 w-4 text-muted-foreground" />
-            <div className="flex-1">
-              <p className="text-sm text-muted-foreground">Commits</p>
-              <p className="text-2xl font-semibold">{contributor?.commits}</p>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs md:text-sm text-muted-foreground truncate">Commits</p>
+              <p className="text-lg md:text-2xl font-semibold">{contributor?.commits}</p>
             </div>
           </div>
         </Card>
-        <Card className="p-4 bg-white dark:bg-gray-800">
+        <Card className="p-2 md:p-4 bg-white dark:bg-gray-800">
           <div className="flex items-center gap-2">
             <GitPullRequest className="h-4 w-4 text-muted-foreground" />
-            <div className="flex-1">
-              <p className="text-sm text-muted-foreground">Pull Requests</p>
-              <p className="text-2xl font-semibold">{contributor?.pullRequests}</p>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs md:text-sm text-muted-foreground truncate">Pull Requests</p>
+              <p className="text-lg md:text-2xl font-semibold">{contributor?.pullRequests}</p>
             </div>
           </div>
         </Card>
-        <Card className="p-4 bg-white dark:bg-gray-800">
+        <Card className="p-2 md:p-4 bg-white dark:bg-gray-800">
           <div className="flex items-center gap-2">
             <Star className="h-4 w-4 text-muted-foreground" />
-            <div className="flex-1">
-              <p className="text-sm text-muted-foreground">Repositories</p>
-              <p className="text-2xl font-semibold">{contributor?.repositories}</p>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs md:text-sm text-muted-foreground truncate">Repositories</p>
+              <p className="text-lg md:text-2xl font-semibold">{contributor?.repositories}</p>
             </div>
           </div>
         </Card>
-        <Card className="p-4 bg-white dark:bg-gray-800">
+        <Card className="p-2 md:p-4 bg-white dark:bg-gray-800">
           <div className="flex items-center gap-2">
             <Code2 className="h-4 w-4 text-muted-foreground" />
-            <div className="flex-1">
-              <p className="text-sm text-muted-foreground">Lines of Code</p>
-              <p className="text-2xl font-semibold">{contributor?.linesOfCode}</p>
+            <div className="flex-1 min-w-0">
+              <p className="text-xs md:text-sm text-muted-foreground truncate">Lines of Code</p>
+              <p className="text-lg md:text-2xl font-semibold">{contributor?.linesOfCode}</p>
             </div>
           </div>
         </Card>
