@@ -7,31 +7,76 @@ import { ChevronLeft, ChevronRight } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { format, subMonths, startOfMonth, isFuture } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { Octokit } from "@octokit/rest";
+
+// Initialize Octokit
+const octokit = new Octokit();
 
 const Index = () => {
   const [selectedContributor, setSelectedContributor] = useState<string | null>(null);
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const isMobile = useIsMobile();
+  const [orgName, setOrgName] = useState("your-org-name"); // Replace with your org name
 
   // Format the current month for display
   const formattedMonth = format(currentMonth, "MMMM yyyy");
 
   const { data: contributors, isLoading } = useQuery({
-    queryKey: ["contributors", formattedMonth],
+    queryKey: ["contributors", formattedMonth, orgName],
     queryFn: async () => {
-      // Mock data for now - replace with actual GitHub API call
-      // In real implementation, we would use the currentMonth to fetch data for that specific month
-      console.log(`Fetching data for ${formattedMonth}`);
-      return Array.from({ length: 8 }, (_, i) => ({
-        login: `user${i}`,
-        avatar_url: `https://avatars.githubusercontent.com/u/${i}`,
-        contributions: Math.floor(Math.random() * 1000),
-        pullRequests: Math.floor(Math.random() * 100),
-        commits: Math.floor(Math.random() * 500),
-        repositories: Math.floor(Math.random() * 20),
-        linesOfCode: Math.floor(Math.random() * 50000),
-        rank: 0, // Will be calculated after sorting
-      }));
+      console.log(`Fetching data for ${formattedMonth} from GitHub org: ${orgName}`);
+      
+      try {
+        // Get all repositories for the organization
+        const { data: repos } = await octokit.repos.listForOrg({
+          org: orgName,
+          per_page: 100,
+        });
+
+        // Get contributors for each repository
+        const contributorsMap = new Map();
+
+        await Promise.all(
+          repos.map(async (repo) => {
+            try {
+              const { data: repoContributors } = await octokit.repos.listContributors({
+                owner: orgName,
+                repo: repo.name,
+                per_page: 100,
+              });
+
+              repoContributors.forEach((contributor) => {
+                if (contributorsMap.has(contributor.login)) {
+                  const existing = contributorsMap.get(contributor.login);
+                  contributorsMap.set(contributor.login, {
+                    ...existing,
+                    contributions: existing.contributions + contributor.contributions,
+                  });
+                } else {
+                  contributorsMap.set(contributor.login, {
+                    login: contributor.login,
+                    avatar_url: contributor.avatar_url,
+                    contributions: contributor.contributions,
+                    pullRequests: 0, // Will be populated in next step
+                    commits: contributor.contributions,
+                    repositories: 1,
+                    linesOfCode: 0, // This requires additional API calls to calculate
+                  });
+                }
+              });
+            } catch (error) {
+              console.error(`Error fetching contributors for ${repo.name}:`, error);
+            }
+          })
+        );
+
+        // Convert map to array and sort by contributions
+        const contributorsArray = Array.from(contributorsMap.values());
+        return contributorsArray;
+      } catch (error) {
+        console.error("Error fetching GitHub data:", error);
+        throw error;
+      }
     },
   });
 

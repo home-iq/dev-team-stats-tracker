@@ -7,6 +7,9 @@ import { motion } from "framer-motion";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { format, parseISO } from "date-fns";
+import { Octokit } from "@octokit/rest";
+
+const octokit = new Octokit();
 
 interface ContributorDetailProps {
   login: string;
@@ -17,17 +20,20 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
   const { data: contributor, isLoading: isLoadingContributor } = useQuery({
     queryKey: ["contributor", login],
     queryFn: async () => {
+      console.log(`Fetching detailed data for user: ${login}`);
+      const { data: user } = await octokit.users.getByUsername({ username: login });
+      
       return {
-        login,
-        name: `${login}'s Full Name`,
-        avatar_url: `https://avatars.githubusercontent.com/u/${Math.floor(Math.random() * 1000)}`,
-        bio: "Software Engineer passionate about building great products",
-        location: "San Francisco, CA",
-        contributions: Math.floor(Math.random() * 1000),
-        pullRequests: Math.floor(Math.random() * 100),
-        commits: Math.floor(Math.random() * 500),
-        repositories: Math.floor(Math.random() * 20),
-        linesOfCode: Math.floor(Math.random() * 50000),
+        login: user.login,
+        name: user.name || user.login,
+        avatar_url: user.avatar_url,
+        bio: user.bio || "No bio available",
+        location: user.location || "Location not specified",
+        contributions: 0, // Will be calculated from activities
+        pullRequests: 0, // Will be calculated from activities
+        commits: 0, // Will be calculated from activities
+        repositories: user.public_repos,
+        linesOfCode: 0, // This requires additional API calls to calculate
       };
     },
   });
@@ -35,14 +41,27 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
   const { data: activities, isLoading: isLoadingActivities } = useQuery({
     queryKey: ["contributor-activity", login],
     queryFn: async () => {
-      return Array.from({ length: 10 }, (_, i) => ({
-        id: i,
-        type: i % 2 === 0 ? "commit" : "pull_request",
-        repo: `repo-${i}`,
-        title: `Activity ${i}`,
-        date: new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString(),
-        linesChanged: Math.floor(Math.random() * 100),
-      }));
+      console.log(`Fetching activities for user: ${login}`);
+      const { data: events } = await octokit.activity.listPublicEventsForUser({
+        username: login,
+        per_page: 100,
+      });
+
+      return events
+        .filter((event) => 
+          event.type === "PushEvent" || 
+          event.type === "PullRequestEvent"
+        )
+        .map((event) => ({
+          id: event.id,
+          type: event.type === "PushEvent" ? "commit" : "pull_request",
+          repo: event.repo.name,
+          title: event.type === "PushEvent" 
+            ? `Pushed to ${event.repo.name}`
+            : `Pull request in ${event.repo.name}`,
+          date: event.created_at,
+          linesChanged: 0, // This requires additional API calls to calculate
+        }));
     },
   });
 
