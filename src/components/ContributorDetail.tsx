@@ -157,9 +157,9 @@ export const ContributorDetail = ({
 
       <Card className="glass-morphism">
         <ScrollArea className="h-[calc(100vh-400px)]">
-          <div className="p-4 space-y-4">
+          <div className="p-4 space-y-2">
             {activities?.map((activity) => (
-              <Card key={activity.id} className="p-4 neo-blur">
+              <Card key={activity.id} className="p-5 neo-blur">
                 <div className="md:hidden flex flex-col gap-3">
                   <div className="flex items-center justify-between gap-4">
                     <div className="flex items-center gap-3">
