@@ -93,7 +93,7 @@ export const ContributorDetail = ({
               </Avatar>
               <div>
                 <h2 className="text-3xl font-bold mb-0.5 text-gradient">{contributor?.name}</h2>
-                <p className="text-sm text-muted-foreground">{contributor?.bio}</p>
+                <p className="text-sm text-muted-foreground">Last Activity: {formatInTimeZone(parseISO(activities?.[0]?.date || new Date().toISOString()), 'America/New_York', 'MMM d @ h:mm a')} EST</p>
               </div>
             </div>
           </div>
