@@ -79,8 +79,8 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
             <img src={contributor?.avatar_url} alt={contributor?.login} className="object-cover" />
           </Avatar>
           <div>
-            <h2 className="text-2xl font-semibold text-gradient">{contributor?.name}</h2>
-            <p className="text-muted-foreground">{contributor?.bio}</p>
+            <h2 className="text-3xl font-bold mb-0.5 text-gradient">{contributor?.name}</h2>
+            <p className="text-sm text-muted-foreground">{contributor?.bio}</p>
           </div>
         </div>
       </div>

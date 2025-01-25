@@ -2,18 +2,43 @@ import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ContributorCard } from "@/components/ContributorCard";
 import { ContributorDetail } from "@/components/ContributorDetail";
-import { format, subMonths, startOfMonth, isFuture } from "date-fns";
+import { format, subMonths, startOfMonth, isFuture, parse, parseISO } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { AnimatePresence, motion } from "framer-motion";
 import { Header } from "@/components/dashboard/Header";
 import { MonthSelector } from "@/components/dashboard/MonthSelector";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 
 const Index = () => {
   const navigate = useNavigate();
-  const { contributorId } = useParams();
-  const [currentMonth, setCurrentMonth] = useState(new Date());
+  const { contributorId, month } = useParams();
+  const [searchParams] = useSearchParams();
+  const monthParam = searchParams.get('month');
   const isMobile = useIsMobile();
+
+  // Initialize currentMonth from URL or default to current date
+  const [currentMonth, setCurrentMonth] = useState(() => {
+    if (month) {
+      try {
+        return parse(month, 'MMMM-yyyy', new Date());
+      } catch {
+        return new Date();
+      }
+    }
+    return new Date();
+  });
+
+  // Update currentMonth when URL changes
+  useEffect(() => {
+    if (month) {
+      try {
+        const parsedMonth = parse(month, 'MMMM-yyyy', new Date());
+        setCurrentMonth(parsedMonth);
+      } catch {
+        // Invalid month format, keep current month
+      }
+    }
+  }, [month]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -27,6 +52,36 @@ const Index = () => {
   }, [contributorId, navigate]);
 
   const formattedMonth = format(currentMonth, "MMMM yyyy");
+  const urlFormattedMonth = format(currentMonth, "MMMM-yyyy").toLowerCase();
+
+  const handleMonthChange = (newMonth: Date) => {
+    setCurrentMonth(newMonth);
+    const monthString = format(newMonth, "MMMM-yyyy").toLowerCase();
+    if (contributorId) {
+      navigate(`/contributor/${contributorId}/${monthString}`);
+    } else if (format(newMonth, "yyyy-MM") !== format(new Date(), "yyyy-MM")) {
+      // Only add month to URL if it's not the current month
+      navigate(`/${monthString}`);
+    } else {
+      // If it's the current month, use the clean index route
+      navigate(`/`);
+    }
+  };
+
+  const handlePreviousMonth = () => {
+    const newMonth = subMonths(currentMonth, 1);
+    handleMonthChange(newMonth);
+  };
+
+  const handleNextMonth = () => {
+    const nextMonth = startOfMonth(subMonths(new Date(), -1));
+    if (!isFuture(currentMonth)) {
+      const proposedNext = subMonths(currentMonth, -1);
+      if (!isFuture(proposedNext)) {
+        handleMonthChange(proposedNext);
+      }
+    }
+  };
 
   const { data: contributors, isLoading } = useQuery({
     queryKey: ["contributors", formattedMonth],
@@ -52,20 +107,6 @@ const Index = () => {
       rank: index + 1,
     }));
 
-  const handlePreviousMonth = () => {
-    setCurrentMonth((prev) => subMonths(prev, 1));
-  };
-
-  const handleNextMonth = () => {
-    const nextMonth = startOfMonth(subMonths(new Date(), -1));
-    if (!isFuture(currentMonth)) {
-      setCurrentMonth((prev) => {
-        const proposedNext = subMonths(prev, -1);
-        return isFuture(proposedNext) ? prev : proposedNext;
-      });
-    }
-  };
-
   return (
     <div className="min-h-screen p-6 md:p-8">
       <AnimatePresence mode="wait" initial={false}>
@@ -82,6 +123,7 @@ const Index = () => {
                 currentMonth={currentMonth}
                 onPreviousMonth={handlePreviousMonth}
                 onNextMonth={handleNextMonth}
+                onMonthChange={handleMonthChange}
               />
               
               {isMobile && (
@@ -99,7 +141,7 @@ const Index = () => {
                   <ContributorCard
                     key={contributor.login}
                     contributor={contributor}
-                    onClick={() => navigate(`/contributor/${contributor.login}`)}
+                    onClick={() => navigate(`/contributor/${contributor.login}/${urlFormattedMonth}`)}
                   />
                 ))}
               </div>
@@ -116,7 +158,13 @@ const Index = () => {
           >
             <ContributorDetail
               login={contributorId}
-              onBack={() => navigate('/')}
+              onBack={() => {
+                if (format(currentMonth, "yyyy-MM") !== format(new Date(), "yyyy-MM")) {
+                  navigate(`/${urlFormattedMonth}`);
+                } else {
+                  navigate('/');
+                }
+              }}
             />
           </motion.div>
         )}

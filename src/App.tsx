@@ -15,7 +15,9 @@ const App = () => (
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<Index />} />
+          <Route path="/:month" element={<Index />} />
           <Route path="/contributor/:contributorId" element={<Index />} />
+          <Route path="/contributor/:contributorId/:month" element={<Index />} />
         </Routes>
       </BrowserRouter>
     </TooltipProvider>
