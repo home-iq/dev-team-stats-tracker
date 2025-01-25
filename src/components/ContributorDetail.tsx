@@ -7,13 +7,26 @@ import { motion } from "framer-motion";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { format, parseISO } from "date-fns";
+import { MonthSelector } from "@/components/dashboard/MonthSelector";
+import { useIsMobile } from "@/hooks/use-mobile";
 
 interface ContributorDetailProps {
   login: string;
   onBack: () => void;
+  currentMonth: Date;
+  onPreviousMonth: () => void;
+  onNextMonth: () => void;
 }
 
-export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => {
+export const ContributorDetail = ({ 
+  login, 
+  onBack, 
+  currentMonth,
+  onPreviousMonth,
+  onNextMonth 
+}: ContributorDetailProps) => {
+  const isMobile = useIsMobile();
+
   const { data: contributor, isLoading: isLoadingContributor } = useQuery({
     queryKey: ["contributor", login],
     queryFn: async () => {
@@ -33,27 +46,18 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
   });
 
   const { data: activities, isLoading: isLoadingActivities } = useQuery({
-    queryKey: ["contributor-activity", login],
+    queryKey: ["contributor-activity", login, format(currentMonth, "yyyy-MM")],
     queryFn: async () => {
       return Array.from({ length: 10 }, (_, i) => ({
         id: i,
         type: i % 2 === 0 ? "commit" : "pull_request",
         repo: `repo-${i}`,
         title: `Activity ${i}`,
-        date: new Date(Date.now() - i * 24 * 60 * 60 * 1000).toISOString(),
+        date: new Date(currentMonth.getTime() - i * 24 * 60 * 60 * 1000).toISOString(),
         linesChanged: Math.floor(Math.random() * 100),
       }));
     },
   });
-
-  const groupedActivities = activities?.reduce((acc, activity) => {
-    const monthKey = format(parseISO(activity.date), 'MMMM yyyy');
-    if (!acc[monthKey]) {
-      acc[monthKey] = [];
-    }
-    acc[monthKey].push(activity);
-    return acc;
-  }, {} as Record<string, typeof activities>);
 
   return (
     <motion.div
@@ -63,26 +67,44 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
       transition={{ duration: 0.3 }}
       className="h-full"
     >
-      <div className="mb-6 flex items-center gap-4">
-        <Button 
-          variant="ghost" 
-          onClick={() => {
-            onBack();
-          }} 
-          size="icon" 
-          className="hover:bg-white/10 cursor-pointer focus:ring-2 focus:ring-white/20"
-        >
-          <ChevronLeft className="h-4 w-4" />
-        </Button>
-        <div className="flex items-center gap-4">
-          <Avatar className="w-16 h-16 border-2 border-primary/20">
-            <img src={contributor?.avatar_url} alt={contributor?.login} className="object-cover" />
-          </Avatar>
-          <div>
-            <h2 className="text-3xl font-bold mb-0.5 text-gradient">{contributor?.name}</h2>
-            <p className="text-sm text-muted-foreground">{contributor?.bio}</p>
+      <div className="mb-8">
+        <div className={`flex ${isMobile ? 'flex-col' : 'flex-row justify-between items-center'}`}>
+          <div className="flex items-center gap-6">
+            <div className="flex items-center gap-4">
+              <Button 
+                variant="ghost" 
+                onClick={onBack}
+                size="icon" 
+                className="hover:bg-white/10 cursor-pointer focus:ring-2 focus:ring-white/20"
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </Button>
+              <Avatar className="w-16 h-16 border-2 border-primary/20">
+                <img src={contributor?.avatar_url} alt={contributor?.login} className="object-cover" />
+              </Avatar>
+              <div>
+                <h2 className="text-3xl font-bold mb-0.5 text-gradient">{contributor?.name}</h2>
+                <p className="text-sm text-muted-foreground">{contributor?.bio}</p>
+              </div>
+            </div>
           </div>
+          {!isMobile && (
+            <MonthSelector
+              currentMonth={currentMonth}
+              onPreviousMonth={onPreviousMonth}
+              onNextMonth={onNextMonth}
+            />
+          )}
         </div>
+        {isMobile && (
+          <div className="mt-4">
+            <MonthSelector
+              currentMonth={currentMonth}
+              onPreviousMonth={onPreviousMonth}
+              onNextMonth={onNextMonth}
+            />
+          </div>
+        )}
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 mb-6">
@@ -126,32 +148,27 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
 
       <Card className="glass-morphism">
         <ScrollArea className="h-[calc(100vh-400px)]">
-          <div className="p-4 space-y-6">
-            {groupedActivities && Object.entries(groupedActivities).map(([month, monthActivities]) => (
-              <div key={month} className="space-y-4">
-                <h3 className="font-semibold text-lg text-gradient mb-2">{month}</h3>
-                {monthActivities.map((activity) => (
-                  <Card key={activity.id} className="p-4 neo-blur">
-                    <div className="flex items-center gap-3">
-                      {activity.type === "commit" ? (
-                        <GitCommit className="h-4 w-4 text-muted-foreground" />
-                      ) : (
-                        <GitPullRequest className="h-4 w-4 text-muted-foreground" />
-                      )}
-                      <div className="flex-1">
-                        <h4 className="font-medium">{activity.title}</h4>
-                        <p className="text-sm text-muted-foreground">{activity.repo}</p>
-                        <p className="text-sm text-muted-foreground">
-                          Lines changed: {activity.linesChanged}
-                        </p>
-                      </div>
-                      <Badge variant="secondary" className="neo-blur">
-                        {format(parseISO(activity.date), 'MMM d')}
-                      </Badge>
-                    </div>
-                  </Card>
-                ))}
-              </div>
+          <div className="p-4 space-y-4">
+            {activities?.map((activity) => (
+              <Card key={activity.id} className="p-4 neo-blur">
+                <div className="flex items-center gap-3">
+                  {activity.type === "commit" ? (
+                    <GitCommit className="h-4 w-4 text-muted-foreground" />
+                  ) : (
+                    <GitPullRequest className="h-4 w-4 text-muted-foreground" />
+                  )}
+                  <div className="flex-1">
+                    <h4 className="font-medium">{activity.title}</h4>
+                    <p className="text-sm text-muted-foreground">{activity.repo}</p>
+                    <p className="text-sm text-muted-foreground">
+                      Lines changed: {activity.linesChanged}
+                    </p>
+                  </div>
+                  <Badge variant="secondary" className="neo-blur">
+                    {format(parseISO(activity.date), 'MMM d')}
+                  </Badge>
+                </div>
+              </Card>
             ))}
           </div>
         </ScrollArea>

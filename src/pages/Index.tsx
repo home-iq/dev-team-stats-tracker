@@ -154,10 +154,13 @@ const Index = () => {
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.2 }}
-            className="max-w-4xl mx-auto"
+            className="max-w-7xl mx-auto"
           >
             <ContributorDetail
               login={contributorId}
+              currentMonth={currentMonth}
+              onPreviousMonth={handlePreviousMonth}
+              onNextMonth={handleNextMonth}
               onBack={() => {
                 if (format(currentMonth, "yyyy-MM") !== format(new Date(), "yyyy-MM")) {
                   navigate(`/${urlFormattedMonth}`);
