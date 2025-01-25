@@ -6,7 +6,8 @@ import { ChevronLeft, GitCommit, GitPullRequest, Code2, Star } from "lucide-reac
 import { motion } from "framer-motion";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { format, parseISO } from "date-fns";
+import { format, parseISO, formatISO } from "date-fns";
+import { formatInTimeZone } from 'date-fns-tz';
 import { MonthSelector } from "@/components/dashboard/MonthSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
 
@@ -48,14 +49,22 @@ export const ContributorDetail = ({
   const { data: activities, isLoading: isLoadingActivities } = useQuery({
     queryKey: ["contributor-activity", login, format(currentMonth, "yyyy-MM")],
     queryFn: async () => {
-      return Array.from({ length: 10 }, (_, i) => ({
-        id: i,
-        type: i % 2 === 0 ? "commit" : "pull_request",
-        repo: `repo-${i}`,
-        title: `Activity ${i}`,
-        date: new Date(currentMonth.getTime() - i * 24 * 60 * 60 * 1000).toISOString(),
-        linesChanged: Math.floor(Math.random() * 100),
-      }));
+      return Array.from({ length: 10 }, (_, i) => {
+        const type = i % 2 === 0 ? "commit" : "pull_request";
+        const repo = `repo-${i}`;
+        return {
+          id: i,
+          type,
+          repo,
+          title: type === "commit" ? "Commit" : "Pull Request",
+          summary: type === "commit" 
+            ? "Updated user authentication and fixed responsive layout issues"
+            : "feature/user-auth → main",
+          date: new Date(currentMonth.getTime() - i * 24 * 60 * 60 * 1000).toISOString(),
+          linesAdded: Math.floor(Math.random() * 10000),
+          linesRemoved: Math.floor(Math.random() * 5000),
+        };
+      });
     },
   });
 
@@ -151,22 +160,64 @@ export const ContributorDetail = ({
           <div className="p-4 space-y-4">
             {activities?.map((activity) => (
               <Card key={activity.id} className="p-4 neo-blur">
-                <div className="flex items-center gap-3">
-                  {activity.type === "commit" ? (
-                    <GitCommit className="h-4 w-4 text-muted-foreground" />
-                  ) : (
-                    <GitPullRequest className="h-4 w-4 text-muted-foreground" />
-                  )}
-                  <div className="flex-1">
-                    <h4 className="font-medium">{activity.title}</h4>
-                    <p className="text-sm text-muted-foreground">{activity.repo}</p>
-                    <p className="text-sm text-muted-foreground">
-                      Lines changed: {activity.linesChanged}
-                    </p>
+                <div className="md:hidden flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="flex items-center gap-3">
+                      {activity.type === "commit" ? (
+                        <GitCommit className="h-4 w-4 text-muted-foreground shrink-0" />
+                      ) : (
+                        <GitPullRequest className="h-4 w-4 text-muted-foreground shrink-0" />
+                      )}
+                      <div className="min-w-0">
+                        <h4 className="font-medium truncate">{activity.title}</h4>
+                        <p className="text-sm text-muted-foreground truncate">{activity.repo}</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-6">
+                      <div className="flex items-center gap-3 shrink-0">
+                        <span className="text-base font-bold text-emerald-400">+{activity.linesAdded.toLocaleString()}</span>
+                        <span className="text-base font-bold text-red-400">-{activity.linesRemoved.toLocaleString()}</span>
+                      </div>
+
+                      <div className="flex flex-col items-end shrink-0">
+                        <Badge variant="secondary" className="neo-blur text-xs">
+                          {format(parseISO(activity.date), 'MMM d')}
+                        </Badge>
+                        <span className="text-xs text-muted-foreground mt-1">
+                          {formatInTimeZone(parseISO(activity.date), 'America/New_York', 'h:mm a')} EST
+                        </span>
+                      </div>
+                    </div>
                   </div>
-                  <Badge variant="secondary" className="neo-blur">
-                    {format(parseISO(activity.date), 'MMM d')}
-                  </Badge>
+                  <p className="text-sm text-muted-foreground">{activity.summary}</p>
+                </div>
+
+                <div className="hidden md:flex items-center gap-3">
+                  {activity.type === "commit" ? (
+                    <GitCommit className="h-4 w-4 text-muted-foreground shrink-0" />
+                  ) : (
+                    <GitPullRequest className="h-4 w-4 text-muted-foreground shrink-0" />
+                  )}
+                  <div className="flex items-center gap-6 flex-1">
+                    <div className="w-[120px] shrink-0">
+                      <h4 className="font-medium truncate">{activity.title}</h4>
+                      <p className="text-sm text-muted-foreground truncate">{activity.repo}</p>
+                    </div>
+                    <p className="text-sm text-muted-foreground truncate flex-1">{activity.summary}</p>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-lg font-bold text-emerald-400">+{activity.linesAdded.toLocaleString()}</span>
+                      <span className="text-lg font-bold text-red-400">-{activity.linesRemoved.toLocaleString()}</span>
+                    </div>
+                  </div>
+                  <div className="flex flex-col items-end shrink-0 ml-8">
+                    <Badge variant="secondary" className="neo-blur text-sm">
+                      {format(parseISO(activity.date), 'MMM d')}
+                    </Badge>
+                    <span className="text-xs text-muted-foreground mt-1">
+                      {formatInTimeZone(parseISO(activity.date), 'America/New_York', 'h:mm a')} EST
+                    </span>
+                  </div>
                 </div>
               </Card>
             ))}
