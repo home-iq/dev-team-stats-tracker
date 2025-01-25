@@ -26,7 +26,7 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
       transition={{ duration: 0.3 }}
     >
       <Card
-        className="p-6 cursor-pointer transition-all duration-300 relative overflow-hidden group glass-morphism hover:bg-white/10"
+        className="p-6 cursor-pointer transition-all duration-100 ease-out relative overflow-hidden group glass-morphism hover:brightness-90 hover:translate-y-[2px]"
         onClick={onClick}
       >
         <div className="absolute top-4 right-4 z-10 bg-primary/10 text-primary w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border border-primary/20">
@@ -69,8 +69,6 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
             </span>
           </div>
         </div>
-
-        <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-primary/0 to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
       </Card>
     </motion.div>
   );

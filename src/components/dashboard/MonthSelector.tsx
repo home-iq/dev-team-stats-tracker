@@ -14,16 +14,16 @@ export const MonthSelector = ({ currentMonth, onPreviousMonth, onNextMonth }: Mo
   const formattedMonth = format(currentMonth, "MMMM yyyy");
 
   return (
-    <div className={`inline-flex items-center gap-4 glass-morphism rounded-lg p-4 ${isMobile ? 'w-full' : ''}`}>
+    <div className={`inline-flex items-center gap-4 glass-morphism rounded-lg p-3 ${isMobile ? 'w-full' : ''}`}>
       <Button
         variant="ghost"
         size="icon"
         onClick={onPreviousMonth}
-        className="h-12 w-12 hover:bg-white/10"
+        className="h-10 w-10 hover:bg-white/10"
       >
-        <ChevronLeft className="h-6 w-6" />
+        <ChevronLeft className="h-5 w-5" />
       </Button>
-      <span className="text-2xl font-medium min-w-48 text-center flex-1 text-gradient">
+      <span className="text-xl font-medium min-w-48 text-center flex-1 text-gradient">
         {formattedMonth}
       </span>
       <Button
@@ -31,9 +31,9 @@ export const MonthSelector = ({ currentMonth, onPreviousMonth, onNextMonth }: Mo
         size="icon"
         onClick={onNextMonth}
         disabled={isFuture(subMonths(currentMonth, -1))}
-        className="h-12 w-12 hover:bg-white/10"
+        className="h-11 w-11 hover:bg-white/10"
       >
-        <ChevronRight className="h-6 w-6" />
+        <ChevronRight className="h-5 w-5" />
       </Button>
     </div>
   );
