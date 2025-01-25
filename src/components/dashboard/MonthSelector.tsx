@@ -14,7 +14,11 @@ export const MonthSelector = ({ currentMonth, onPreviousMonth, onNextMonth }: Mo
   const formattedMonth = format(currentMonth, "MMMM yyyy");
 
   return (
-    <div className={`inline-flex items-center gap-4 glass-morphism rounded-lg p-3 ${isMobile ? 'w-full' : ''}`}>
+    <div className={`inline-flex items-center gap-4 glass-morphism rounded-lg p-3 ${
+      isMobile 
+        ? 'w-full' 
+        : 'w-full md:w-[calc((100%-1rem)/2)] lg:w-[calc((100%-2rem)/3)] xl:w-[calc((100%-3rem)/4)]'
+    }`}>
       <Button
         variant="ghost"
         size="icon"
