@@ -175,9 +175,9 @@ export const ContributorDetail = ({
                     </div>
 
                     <div className="flex items-center gap-6">
-                      <div className="flex items-center gap-3 shrink-0">
-                        <span className="text-base font-bold text-emerald-400">+{activity.linesAdded.toLocaleString()}</span>
-                        <span className="text-base font-bold text-red-400">-{activity.linesRemoved.toLocaleString()}</span>
+                      <div className="flex items-center shrink-0">
+                        <span className="text-base font-bold text-emerald-400 w-[4.5rem] text-right">+{activity.linesAdded.toLocaleString()}</span>
+                        <span className="text-base font-bold text-red-400 w-[4.5rem] text-right -ml-1">-{activity.linesRemoved.toLocaleString()}</span>
                       </div>
 
                       <div className="flex flex-col items-end shrink-0">
@@ -206,8 +206,10 @@ export const ContributorDetail = ({
                     </div>
                     <p className="text-sm text-muted-foreground truncate flex-1">{activity.summary}</p>
                     <div className="flex items-center gap-3 shrink-0">
-                      <span className="text-lg font-bold text-emerald-400">+{activity.linesAdded.toLocaleString()}</span>
-                      <span className="text-lg font-bold text-red-400">-{activity.linesRemoved.toLocaleString()}</span>
+                      <div className="flex items-center shrink-0">
+                        <span className="text-lg font-bold text-emerald-400 w-[5rem] text-right">+{activity.linesAdded.toLocaleString()}</span>
+                        <span className="text-lg font-bold text-red-400 w-[5rem] text-right -ml-1">-{activity.linesRemoved.toLocaleString()}</span>
+                      </div>
                     </div>
                   </div>
                   <div className="flex flex-col items-end shrink-0 ml-8">
