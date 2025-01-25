@@ -46,7 +46,6 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
     },
   });
 
-  // Group activities by month
   const groupedActivities = activities?.reduce((acc, activity) => {
     const monthKey = format(parseISO(activity.date), 'MMMM yyyy');
     if (!acc[monthKey]) {
@@ -65,67 +64,67 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
       className="h-full"
     >
       <div className="mb-6 flex items-center gap-4">
-        <Button variant="ghost" onClick={onBack} size="icon">
+        <Button variant="ghost" onClick={onBack} size="icon" className="hover:bg-white/10">
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <div className="flex items-center gap-4">
-          <Avatar className="w-16 h-16">
+          <Avatar className="w-16 h-16 border-2 border-primary/20">
             <img src={contributor?.avatar_url} alt={contributor?.login} className="object-cover" />
           </Avatar>
           <div>
-            <h2 className="text-2xl font-semibold">{contributor?.name}</h2>
+            <h2 className="text-2xl font-semibold text-gradient">{contributor?.name}</h2>
             <p className="text-muted-foreground">{contributor?.bio}</p>
           </div>
         </div>
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 mb-6">
-        <Card className="p-2 md:p-4 bg-white dark:bg-gray-800">
+        <Card className="p-2 md:p-4 glass-morphism">
           <div className="flex items-center gap-2">
             <GitCommit className="h-4 w-4 text-muted-foreground" />
             <div className="flex-1 min-w-0">
               <p className="text-xs md:text-sm text-muted-foreground truncate">Commits</p>
-              <p className="text-lg md:text-2xl font-semibold">{contributor?.commits}</p>
+              <p className="text-lg md:text-2xl font-semibold text-gradient">{contributor?.commits}</p>
             </div>
           </div>
         </Card>
-        <Card className="p-2 md:p-4 bg-white dark:bg-gray-800">
+        <Card className="p-2 md:p-4 glass-morphism">
           <div className="flex items-center gap-2">
             <GitPullRequest className="h-4 w-4 text-muted-foreground" />
             <div className="flex-1 min-w-0">
               <p className="text-xs md:text-sm text-muted-foreground truncate">Pull Requests</p>
-              <p className="text-lg md:text-2xl font-semibold">{contributor?.pullRequests}</p>
+              <p className="text-lg md:text-2xl font-semibold text-gradient">{contributor?.pullRequests}</p>
             </div>
           </div>
         </Card>
-        <Card className="p-2 md:p-4 bg-white dark:bg-gray-800">
+        <Card className="p-2 md:p-4 glass-morphism">
           <div className="flex items-center gap-2">
             <Star className="h-4 w-4 text-muted-foreground" />
             <div className="flex-1 min-w-0">
               <p className="text-xs md:text-sm text-muted-foreground truncate">Repositories</p>
-              <p className="text-lg md:text-2xl font-semibold">{contributor?.repositories}</p>
+              <p className="text-lg md:text-2xl font-semibold text-gradient">{contributor?.repositories}</p>
             </div>
           </div>
         </Card>
-        <Card className="p-2 md:p-4 bg-white dark:bg-gray-800">
+        <Card className="p-2 md:p-4 glass-morphism">
           <div className="flex items-center gap-2">
             <Code2 className="h-4 w-4 text-muted-foreground" />
             <div className="flex-1 min-w-0">
               <p className="text-xs md:text-sm text-muted-foreground truncate">Lines of Code</p>
-              <p className="text-lg md:text-2xl font-semibold">{contributor?.linesOfCode}</p>
+              <p className="text-lg md:text-2xl font-semibold text-gradient">{contributor?.linesOfCode}</p>
             </div>
           </div>
         </Card>
       </div>
 
-      <Card className="bg-white dark:bg-gray-800">
+      <Card className="glass-morphism">
         <ScrollArea className="h-[calc(100vh-400px)]">
           <div className="p-4 space-y-6">
             {groupedActivities && Object.entries(groupedActivities).map(([month, monthActivities]) => (
               <div key={month} className="space-y-4">
-                <h3 className="font-semibold text-lg text-muted-foreground mb-2">{month}</h3>
+                <h3 className="font-semibold text-lg text-gradient mb-2">{month}</h3>
                 {monthActivities.map((activity) => (
-                  <Card key={activity.id} className="p-4">
+                  <Card key={activity.id} className="p-4 neo-blur">
                     <div className="flex items-center gap-3">
                       {activity.type === "commit" ? (
                         <GitCommit className="h-4 w-4 text-muted-foreground" />
@@ -139,7 +138,7 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
                           Lines changed: {activity.linesChanged}
                         </p>
                       </div>
-                      <Badge variant="secondary">
+                      <Badge variant="secondary" className="neo-blur">
                         {format(parseISO(activity.date), 'MMM d')}
                       </Badge>
                     </div>

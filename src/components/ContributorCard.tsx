@@ -26,34 +26,34 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
       transition={{ duration: 0.3 }}
     >
       <Card
-        className="p-6 cursor-pointer hover:shadow-lg transition-shadow duration-300 relative overflow-hidden group bg-white dark:bg-gray-800"
+        className="p-6 cursor-pointer transition-all duration-300 relative overflow-hidden group glass-morphism hover:bg-white/10"
         onClick={onClick}
       >
-        <div className="absolute top-4 right-4 z-10 bg-primary text-primary-foreground w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm">
+        <div className="absolute top-4 right-4 z-10 bg-primary/10 text-primary w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border border-primary/20">
           #{contributor.rank}
         </div>
         
         <div className="flex items-start space-x-4">
-          <Avatar className="w-16 h-16">
+          <Avatar className="w-16 h-16 border-2 border-primary/20">
             <img src={contributor.avatar_url} alt={contributor.login} className="object-cover" />
           </Avatar>
           
           <div className="flex-1">
-            <h3 className="font-semibold text-lg mb-2">{contributor.login}</h3>
+            <h3 className="font-semibold text-lg mb-2 text-gradient">{contributor.login}</h3>
             <div className="flex flex-wrap gap-2 mb-4">
-              <Badge variant="secondary" className="flex items-center gap-1">
+              <Badge variant="secondary" className="flex items-center gap-1 neo-blur">
                 <GitCommit className="w-3 h-3" />
                 {contributor.commits} commits
               </Badge>
-              <Badge variant="secondary" className="flex items-center gap-1">
+              <Badge variant="secondary" className="flex items-center gap-1 neo-blur">
                 <GitPullRequest className="w-3 h-3" />
                 {contributor.pullRequests} PRs
               </Badge>
-              <Badge variant="secondary" className="flex items-center gap-1">
+              <Badge variant="secondary" className="flex items-center gap-1 neo-blur">
                 <Star className="w-3 h-3" />
                 {contributor.repositories} repos
               </Badge>
-              <Badge variant="secondary" className="flex items-center gap-1">
+              <Badge variant="secondary" className="flex items-center gap-1 neo-blur">
                 <Code2 className="w-3 h-3" />
                 {contributor.linesOfCode} lines
               </Badge>
@@ -61,7 +61,7 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
           </div>
         </div>
         
-        <div className="mt-4 pt-4 border-t">
+        <div className="mt-4 pt-4 border-t border-white/10">
           <div className="text-sm text-muted-foreground">
             Total Contributions
             <span className="float-right font-semibold text-foreground">
@@ -69,6 +69,8 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
             </span>
           </div>
         </div>
+
+        <div className="absolute inset-0 bg-gradient-to-r from-primary/5 via-primary/0 to-primary/5 opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
       </Card>
     </motion.div>
   );

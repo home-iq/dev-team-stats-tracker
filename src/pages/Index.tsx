@@ -13,14 +13,11 @@ const Index = () => {
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const isMobile = useIsMobile();
 
-  // Format the current month for display
   const formattedMonth = format(currentMonth, "MMMM yyyy");
 
   const { data: contributors, isLoading } = useQuery({
     queryKey: ["contributors", formattedMonth],
     queryFn: async () => {
-      // Mock data for now - replace with actual GitHub API call
-      // In real implementation, we would use the currentMonth to fetch data for that specific month
       console.log(`Fetching data for ${formattedMonth}`);
       return Array.from({ length: 8 }, (_, i) => ({
         login: `user${i}`,
@@ -30,12 +27,11 @@ const Index = () => {
         commits: Math.floor(Math.random() * 500),
         repositories: Math.floor(Math.random() * 20),
         linesOfCode: Math.floor(Math.random() * 50000),
-        rank: 0, // Will be calculated after sorting
+        rank: 0,
       }));
     },
   });
 
-  // Sort and rank contributors
   const rankedContributors = contributors
     ?.sort((a, b) => b.contributions - a.contributions)
     .map((contributor, index) => ({
@@ -58,16 +54,16 @@ const Index = () => {
   };
 
   const MonthSelector = () => (
-    <div className={`inline-flex items-center gap-4 bg-card rounded-lg p-4 border ${isMobile ? 'w-full' : ''}`}>
+    <div className={`inline-flex items-center gap-4 glass-morphism rounded-lg p-4 ${isMobile ? 'w-full' : ''}`}>
       <Button
         variant="ghost"
         size="icon"
         onClick={handlePreviousMonth}
-        className="h-12 w-12"
+        className="h-12 w-12 hover:bg-white/10"
       >
         <ChevronLeft className="h-6 w-6" />
       </Button>
-      <span className="text-2xl font-medium min-w-48 text-center flex-1">
+      <span className="text-2xl font-medium min-w-48 text-center flex-1 text-gradient">
         {formattedMonth}
       </span>
       <Button
@@ -75,7 +71,7 @@ const Index = () => {
         size="icon"
         onClick={handleNextMonth}
         disabled={isFuture(subMonths(currentMonth, -1))}
-        className="h-12 w-12"
+        className="h-12 w-12 hover:bg-white/10"
       >
         <ChevronRight className="h-6 w-6" />
       </Button>
@@ -83,7 +79,7 @@ const Index = () => {
   );
 
   return (
-    <div className="min-h-screen bg-background p-6 md:p-8">
+    <div className="min-h-screen p-6 md:p-8">
       <AnimatePresence mode="wait">
         {!selectedContributor ? (
           <motion.div
@@ -95,7 +91,7 @@ const Index = () => {
             <div className="max-w-7xl mx-auto">
               <div className={`flex ${isMobile ? 'flex-col' : 'flex-row justify-between items-start'} mb-8`}>
                 <div>
-                  <h1 className="text-4xl font-bold mb-2">myHomeIQ Dev Team Dashboard</h1>
+                  <h1 className="text-4xl font-bold mb-2 text-gradient">myHomeIQ Dev Team Dashboard</h1>
                   <p className="text-muted-foreground">
                     Track your team's contributions across all repositories
                   </p>
