@@ -64,7 +64,11 @@ const Index = () => {
             exit={{ opacity: 0 }}
           >
             <div className="max-w-7xl mx-auto">
-              <Header />
+              <Header 
+                currentMonth={currentMonth}
+                onPreviousMonth={handlePreviousMonth}
+                onNextMonth={handleNextMonth}
+              />
               
               {isMobile && (
                 <div className="mb-8">

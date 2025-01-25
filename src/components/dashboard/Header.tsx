@@ -1,7 +1,13 @@
 import { useIsMobile } from "@/hooks/use-mobile";
 import { MonthSelector } from "./MonthSelector";
 
-export const Header = () => {
+interface HeaderProps {
+  currentMonth: Date;
+  onPreviousMonth: () => void;
+  onNextMonth: () => void;
+}
+
+export const Header = ({ currentMonth, onPreviousMonth, onNextMonth }: HeaderProps) => {
   const isMobile = useIsMobile();
 
   return (
@@ -15,7 +21,13 @@ export const Header = () => {
           </p>
         </div>
       </div>
-      {!isMobile && <MonthSelector />}
+      {!isMobile && (
+        <MonthSelector
+          currentMonth={currentMonth}
+          onPreviousMonth={onPreviousMonth}
+          onNextMonth={onNextMonth}
+        />
+      )}
     </div>
   );
 };
