@@ -95,6 +95,7 @@ const Index = () => {
         commits: Math.floor(Math.random() * 500),
         repositories: Math.floor(Math.random() * 20),
         linesOfCode: Math.floor(Math.random() * 50000),
+        lastActivity: new Date(Date.now() - Math.floor(Math.random() * 7 * 24 * 60 * 60 * 1000)).toISOString(),
         rank: 0,
       }));
     },

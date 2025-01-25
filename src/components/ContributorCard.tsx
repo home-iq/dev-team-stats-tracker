@@ -3,6 +3,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { ArrowUpRight, GitCommit, GitPullRequest, Star, Code2 } from "lucide-react";
 import { motion } from "framer-motion";
+import { formatInTimeZone } from "date-fns-tz";
+import { parseISO } from "date-fns";
 
 interface ContributorCardProps {
   contributor: {
@@ -14,6 +16,7 @@ interface ContributorCardProps {
     repositories: number;
     linesOfCode: number;
     rank: number;
+    lastActivity: string;
   };
   onClick: () => void;
 }
@@ -61,9 +64,16 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
           </div>
         </div>
         
+        <div className="text-xs text-muted-foreground mt-4">
+          Last Activity
+          <span className="float-right">
+            {formatInTimeZone(parseISO(contributor.lastActivity), 'America/New_York', 'MMM d, h:mm a')} EST
+          </span>
+        </div>
+
         <div className="mt-4 pt-4 border-t border-white/10">
           <div className="text-sm text-muted-foreground">
-            Total Contributions
+            Contribution Score
             <span className="float-right font-semibold text-foreground">
               {contributor.contributions}
             </span>
