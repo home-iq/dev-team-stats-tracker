@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ContributorCard } from "@/components/ContributorCard";
 import { ContributorDetail } from "@/components/ContributorDetail";
@@ -7,11 +7,24 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { AnimatePresence, motion } from "framer-motion";
 import { Header } from "@/components/dashboard/Header";
 import { MonthSelector } from "@/components/dashboard/MonthSelector";
+import { useNavigate, useParams } from "react-router-dom";
 
 const Index = () => {
-  const [selectedContributor, setSelectedContributor] = useState<string | null>(null);
+  const navigate = useNavigate();
+  const { contributorId } = useParams();
   const [currentMonth, setCurrentMonth] = useState(new Date());
   const isMobile = useIsMobile();
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && contributorId) {
+        navigate('/');
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [contributorId, navigate]);
 
   const formattedMonth = format(currentMonth, "MMMM yyyy");
 
@@ -55,13 +68,14 @@ const Index = () => {
 
   return (
     <div className="min-h-screen p-6 md:p-8">
-      <AnimatePresence mode="wait">
-        {!selectedContributor ? (
+      <AnimatePresence mode="wait" initial={false}>
+        {!contributorId ? (
           <motion.div
             key="dashboard"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
           >
             <div className="max-w-7xl mx-auto">
               <Header 
@@ -85,7 +99,7 @@ const Index = () => {
                   <ContributorCard
                     key={contributor.login}
                     contributor={contributor}
-                    onClick={() => setSelectedContributor(contributor.login)}
+                    onClick={() => navigate(`/contributor/${contributor.login}`)}
                   />
                 ))}
               </div>
@@ -97,11 +111,12 @@ const Index = () => {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
             className="max-w-4xl mx-auto"
           >
             <ContributorDetail
-              login={selectedContributor}
-              onBack={() => setSelectedContributor(null)}
+              login={contributorId}
+              onBack={() => navigate('/')}
             />
           </motion.div>
         )}

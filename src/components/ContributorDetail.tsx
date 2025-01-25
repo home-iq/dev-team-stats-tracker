@@ -64,7 +64,14 @@ export const ContributorDetail = ({ login, onBack }: ContributorDetailProps) => 
       className="h-full"
     >
       <div className="mb-6 flex items-center gap-4">
-        <Button variant="ghost" onClick={onBack} size="icon" className="hover:bg-white/10">
+        <Button 
+          variant="ghost" 
+          onClick={() => {
+            onBack();
+          }} 
+          size="icon" 
+          className="hover:bg-white/10 cursor-pointer focus:ring-2 focus:ring-white/20"
+        >
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <div className="flex items-center gap-4">
