@@ -67,7 +67,7 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
         <div className="text-xs text-muted-foreground mt-4">
           Last Activity
           <span className="float-right">
-            {formatInTimeZone(parseISO(contributor.lastActivity), 'America/New_York', 'MMM d, h:mm a')} EST
+            {formatInTimeZone(parseISO(contributor.lastActivity), 'America/New_York', 'MMM d @ h:mm a')} EST
           </span>
         </div>
 
