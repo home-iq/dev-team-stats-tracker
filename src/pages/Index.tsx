@@ -2,11 +2,11 @@ import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { ContributorCard } from "@/components/ContributorCard";
 import { ContributorDetail } from "@/components/ContributorDetail";
-import { Button } from "@/components/ui/button";
-import { ChevronLeft, ChevronRight } from "lucide-react";
-import { AnimatePresence, motion } from "framer-motion";
 import { format, subMonths, startOfMonth, isFuture } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { AnimatePresence, motion } from "framer-motion";
+import { Header } from "@/components/dashboard/Header";
+import { MonthSelector } from "@/components/dashboard/MonthSelector";
 
 const Index = () => {
   const [selectedContributor, setSelectedContributor] = useState<string | null>(null);
@@ -53,31 +53,6 @@ const Index = () => {
     }
   };
 
-  const MonthSelector = () => (
-    <div className={`inline-flex items-center gap-4 glass-morphism rounded-lg p-4 ${isMobile ? 'w-full' : ''}`}>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={handlePreviousMonth}
-        className="h-12 w-12 hover:bg-white/10"
-      >
-        <ChevronLeft className="h-6 w-6" />
-      </Button>
-      <span className="text-2xl font-medium min-w-48 text-center flex-1 text-gradient">
-        {formattedMonth}
-      </span>
-      <Button
-        variant="ghost"
-        size="icon"
-        onClick={handleNextMonth}
-        disabled={isFuture(subMonths(currentMonth, -1))}
-        className="h-12 w-12 hover:bg-white/10"
-      >
-        <ChevronRight className="h-6 w-6" />
-      </Button>
-    </div>
-  );
-
   return (
     <div className="min-h-screen p-6 md:p-8">
       <AnimatePresence mode="wait">
@@ -89,22 +64,15 @@ const Index = () => {
             exit={{ opacity: 0 }}
           >
             <div className="max-w-7xl mx-auto">
-              <div className={`flex ${isMobile ? 'flex-col' : 'flex-row justify-between items-start'} mb-8`}>
-                <div className="flex items-center gap-3">
-                  <img src="/lovable-uploads/716e0ab0-b4ee-4fb2-966d-2597a98a27ec.png" alt="IQ Logo" className="h-8 w-auto" />
-                  <div>
-                    <h1 className="text-4xl font-bold mb-2 text-gradient">Dev Team Dashboard</h1>
-                    <p className="text-muted-foreground">
-                      Track your team's contributions across all repositories
-                    </p>
-                  </div>
-                </div>
-                {!isMobile && <MonthSelector />}
-              </div>
-
+              <Header />
+              
               {isMobile && (
                 <div className="mb-8">
-                  <MonthSelector />
+                  <MonthSelector
+                    currentMonth={currentMonth}
+                    onPreviousMonth={handlePreviousMonth}
+                    onNextMonth={handleNextMonth}
+                  />
                 </div>
               )}
 
