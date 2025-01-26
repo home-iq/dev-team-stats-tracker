@@ -3,64 +3,65 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
   url       = env("DATABASE_URL")
   directUrl = env("DIRECT_URL")
 }
 
 model Team {
-  id           String     @id @default(uuid())
+  id           String        @id @default(uuid())
   name         String
   githubKey    String
-  githubOrg    String?    // GitHub organization name
-  repos        Repo[]
+  githubOrg    String?
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
   contributors Contributor[]
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  months       Month[]
+  repos        Repo[]
 }
 
 model Repo {
-  id           String     @id @default(uuid())
+  id           String        @id @default(uuid())
   name         String
-  githubRepoId String     @unique // GitHub's internal repo ID
-  url          String?    // Full GitHub URL
-  team         Team       @relation(fields: [teamId], references: [id])
+  githubRepoId String        @unique
+  url          String?
   teamId       String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
   commits      Commit[]
-  pullRequests PullRequest[]
   events       Event[]
-  createdAt    DateTime   @default(now())
-  updatedAt    DateTime   @updatedAt
+  pullRequests PullRequest[]
+  team         Team          @relation(fields: [teamId], references: [id])
 }
 
 model Contributor {
-  id            String     @id @default(uuid())
-  name          String
-  githubUserId  String     @unique // GitHub's user ID
-  githubLogin   String     @unique // GitHub username
-  avatarUrl     String?
-  team          Team       @relation(fields: [teamId], references: [id])
-  teamId        String
-  commits       Commit[]
-  pullRequests  PullRequest[]
-  events        Event[]
-  createdAt     DateTime   @default(now())
-  updatedAt     DateTime   @updatedAt
+  id           String        @id @default(uuid())
+  name         String
+  githubUserId String        @unique
+  githubLogin  String        @unique
+  avatarUrl    String?
+  teamId       String
+  createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+  commits      Commit[]
+  team         Team          @relation(fields: [teamId], references: [id])
+  events       Event[]
+  pullRequests PullRequest[]
 }
 
 model Commit {
-  id             String     @id @default(uuid())
-  githubCommitId String     @unique // SHA from GitHub
+  id             String      @id @default(uuid())
+  githubCommitId String      @unique
   message        String
   linesAdded     Int
   linesDeleted   Int
-  committedAt    DateTime   // Original commit timestamp
-  repo           Repo       @relation(fields: [repoId], references: [id])
+  committedAt    DateTime
   repoId         String
-  author         Contributor     @relation(fields: [authorId], references: [id])
   authorId       String
-  createdAt      DateTime   @default(now())
-  updatedAt      DateTime   @updatedAt
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  author         Contributor @relation(fields: [authorId], references: [id])
+  repo           Repo        @relation(fields: [repoId], references: [id])
 
   @@index([repoId])
   @@index([authorId])
@@ -68,29 +69,29 @@ model Commit {
 }
 
 model PullRequest {
-  id              String       @id @default(uuid())
-  githubPrId      Int         @unique // GitHub's PR number
-  title           String
-  description     String?
-  status          PrStatus    // enum for PR status
-  isDraft         Boolean     @default(false)
-  isMerged        Boolean     @default(false)
-  sourceBranch    String      // Source branch (e.g. "feature/user-auth")
-  targetBranch    String      // Target branch (e.g. "main")
-  mergedAt        DateTime?
-  closedAt        DateTime?
-  linesAdded      Int
-  linesDeleted    Int
-  commits         Int         // number of commits in PR
-  comments        Int         // number of comments
-  reviews         Int         // number of reviews
-  author          Contributor @relation(fields: [authorId], references: [id])
-  authorId        String
-  repo            Repo        @relation(fields: [repoId], references: [id])
-  repoId          String
-  events          Event[]     // related events like reviews, comments
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  id           String      @id @default(uuid())
+  githubPrId   Int         @unique
+  title        String
+  description  String?
+  status       PrStatus
+  isDraft      Boolean     @default(false)
+  isMerged     Boolean     @default(false)
+  sourceBranch String
+  targetBranch String
+  mergedAt     DateTime?
+  closedAt     DateTime?
+  linesAdded   Int
+  linesDeleted Int
+  commits      Int
+  comments     Int
+  reviews      Int
+  authorId     String
+  repoId       String
+  createdAt    DateTime    @default(now())
+  updatedAt    DateTime    @updatedAt
+  events       Event[]
+  author       Contributor @relation(fields: [authorId], references: [id])
+  repo         Repo        @relation(fields: [repoId], references: [id])
 
   @@index([repoId])
   @@index([authorId])
@@ -99,25 +100,38 @@ model PullRequest {
 }
 
 model Event {
-  id              String       @id @default(uuid())
-  githubEventId   String      @unique // GitHub's event ID
-  type            EventType   // enum for event type
-  action          String?     // specific action (e.g., "approved", "commented")
-  details         Json?       // additional event details
-  rawJson         Json        // Complete GitHub event payload
-  pullRequest     PullRequest? @relation(fields: [pullRequestId], references: [id])
-  pullRequestId   String?
-  contributor     Contributor @relation(fields: [contributorId], references: [id])
-  contributorId   String
-  repo            Repo        @relation(fields: [repoId], references: [id])
-  repoId          String
-  createdAt       DateTime    @default(now())
-  updatedAt       DateTime    @updatedAt
+  id            String       @id @default(uuid())
+  githubEventId String       @unique
+  type          EventType
+  action        String?
+  details       Json?
+  rawJson       Json
+  pullRequestId String?
+  contributorId String
+  repoId        String
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  contributor   Contributor  @relation(fields: [contributorId], references: [id])
+  pullRequest   PullRequest? @relation(fields: [pullRequestId], references: [id])
+  repo          Repo         @relation(fields: [repoId], references: [id])
 
   @@index([repoId])
   @@index([contributorId])
   @@index([type])
   @@index([createdAt])
+}
+
+model Month {
+  id        String   @id @default(uuid())
+  date      DateTime @unique
+  teamId    String
+  stats     Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  team      Team     @relation(fields: [teamId], references: [id])
+
+  @@index([date])
+  @@index([teamId])
 }
 
 enum PrStatus {
@@ -142,4 +156,4 @@ enum EventType {
   REPO_CREATED
   REPO_DELETED
   REPO_ARCHIVED
-} 
+}
