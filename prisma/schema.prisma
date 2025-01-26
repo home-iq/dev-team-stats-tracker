@@ -1,0 +1,145 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+model Team {
+  id           String     @id @default(uuid())
+  name         String
+  githubKey    String
+  githubOrg    String?    // GitHub organization name
+  repos        Repo[]
+  contributors Contributor[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Repo {
+  id           String     @id @default(uuid())
+  name         String
+  githubRepoId String     @unique // GitHub's internal repo ID
+  url          String?    // Full GitHub URL
+  team         Team       @relation(fields: [teamId], references: [id])
+  teamId       String
+  commits      Commit[]
+  pullRequests PullRequest[]
+  events       Event[]
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Contributor {
+  id            String     @id @default(uuid())
+  name          String
+  githubUserId  String     @unique // GitHub's user ID
+  githubLogin   String     @unique // GitHub username
+  avatarUrl     String?
+  team          Team       @relation(fields: [teamId], references: [id])
+  teamId        String
+  commits       Commit[]
+  pullRequests  PullRequest[]
+  events        Event[]
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+}
+
+model Commit {
+  id             String     @id @default(uuid())
+  githubCommitId String     @unique // SHA from GitHub
+  message        String
+  linesAdded     Int
+  linesDeleted   Int
+  committedAt    DateTime   // Original commit timestamp
+  repo           Repo       @relation(fields: [repoId], references: [id])
+  repoId         String
+  author         Contributor     @relation(fields: [authorId], references: [id])
+  authorId       String
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  @@index([repoId])
+  @@index([authorId])
+  @@index([committedAt])
+}
+
+model PullRequest {
+  id              String       @id @default(uuid())
+  githubPrId      Int         @unique // GitHub's PR number
+  title           String
+  description     String?
+  status          PrStatus    // enum for PR status
+  isDraft         Boolean     @default(false)
+  isMerged        Boolean     @default(false)
+  sourceBranch    String      // Source branch (e.g. "feature/user-auth")
+  targetBranch    String      // Target branch (e.g. "main")
+  mergedAt        DateTime?
+  closedAt        DateTime?
+  linesAdded      Int
+  linesDeleted    Int
+  commits         Int         // number of commits in PR
+  comments        Int         // number of comments
+  reviews         Int         // number of reviews
+  author          Contributor @relation(fields: [authorId], references: [id])
+  authorId        String
+  repo            Repo        @relation(fields: [repoId], references: [id])
+  repoId          String
+  events          Event[]     // related events like reviews, comments
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([repoId])
+  @@index([authorId])
+  @@index([createdAt])
+  @@index([status])
+}
+
+model Event {
+  id              String       @id @default(uuid())
+  githubEventId   String      @unique // GitHub's event ID
+  type            EventType   // enum for event type
+  action          String?     // specific action (e.g., "approved", "commented")
+  details         Json?       // additional event details
+  rawJson         Json        // Complete GitHub event payload
+  pullRequest     PullRequest? @relation(fields: [pullRequestId], references: [id])
+  pullRequestId   String?
+  contributor     Contributor @relation(fields: [contributorId], references: [id])
+  contributorId   String
+  repo            Repo        @relation(fields: [repoId], references: [id])
+  repoId          String
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([repoId])
+  @@index([contributorId])
+  @@index([type])
+  @@index([createdAt])
+}
+
+enum PrStatus {
+  OPEN
+  CLOSED
+  MERGED
+}
+
+enum EventType {
+  PR_OPENED
+  PR_CLOSED
+  PR_MERGED
+  PR_REOPENED
+  PR_REVIEWED
+  PR_COMMENTED
+  PR_APPROVED
+  PR_CHANGES_REQUESTED
+  COMMIT_PUSHED
+  ISSUE_OPENED
+  ISSUE_CLOSED
+  ISSUE_COMMENTED
+  REPO_CREATED
+  REPO_DELETED
+  REPO_ARCHIVED
+} 

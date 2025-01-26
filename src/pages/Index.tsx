@@ -7,13 +7,11 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { AnimatePresence, motion } from "framer-motion";
 import { Header } from "@/components/dashboard/Header";
 import { MonthSelector } from "@/components/dashboard/MonthSelector";
-import { useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 
 const Index = () => {
   const navigate = useNavigate();
   const { contributorId, month } = useParams();
-  const [searchParams] = useSearchParams();
-  const monthParam = searchParams.get('month');
   const isMobile = useIsMobile();
 
   // Initialize currentMonth from URL or default to current date
@@ -28,6 +26,9 @@ const Index = () => {
     return new Date();
   });
 
+  const formattedMonth = format(currentMonth, "MMMM yyyy");
+  const urlFormattedMonth = format(currentMonth, "MMMM-yyyy").toLowerCase();
+
   // Update currentMonth when URL changes
   useEffect(() => {
     if (month) {
@@ -37,22 +38,26 @@ const Index = () => {
       } catch {
         // Invalid month format, keep current month
       }
+    } else {
+      // No month in URL, reset to current month
+      setCurrentMonth(new Date());
     }
   }, [month]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && contributorId) {
-        navigate('/');
+        if (format(currentMonth, "yyyy-MM") !== format(new Date(), "yyyy-MM")) {
+          navigate(`/${urlFormattedMonth}`);
+        } else {
+          navigate('/');
+        }
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [contributorId, navigate]);
-
-  const formattedMonth = format(currentMonth, "MMMM yyyy");
-  const urlFormattedMonth = format(currentMonth, "MMMM-yyyy").toLowerCase();
+  }, [contributorId, navigate, currentMonth, urlFormattedMonth]);
 
   const handleMonthChange = (newMonth: Date) => {
     setCurrentMonth(newMonth);
