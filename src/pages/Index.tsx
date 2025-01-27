@@ -14,9 +14,9 @@ const Index = () => {
   const { contributorId, month } = useParams();
   const isMobile = useIsMobile();
 
-  // Initialize currentMonth from URL or default to current date
-  const [currentMonth, setCurrentMonth] = useState(() => {
-    if (month) {
+  // Separate month states for dashboard and contributor detail
+  const [dashboardMonth, setDashboardMonth] = useState(() => {
+    if (!contributorId && month) {
       try {
         return parse(month, 'MMMM-yyyy', new Date());
       } catch {
@@ -26,29 +26,47 @@ const Index = () => {
     return new Date();
   });
 
+  const [contributorMonth, setContributorMonth] = useState(() => {
+    if (contributorId && month) {
+      try {
+        return parse(month, 'MMMM-yyyy', new Date());
+      } catch {
+        return new Date();
+      }
+    }
+    return new Date();
+  });
+
+  // Get the current active month based on the view
+  const currentMonth = contributorId ? contributorMonth : dashboardMonth;
   const formattedMonth = format(currentMonth, "MMMM yyyy");
   const urlFormattedMonth = format(currentMonth, "MMMM-yyyy").toLowerCase();
 
-  // Update currentMonth when URL changes
+  // Update month states when URL changes
   useEffect(() => {
     if (month) {
       try {
         const parsedMonth = parse(month, 'MMMM-yyyy', new Date());
-        setCurrentMonth(parsedMonth);
+        if (contributorId) {
+          setContributorMonth(parsedMonth);
+        } else {
+          setDashboardMonth(parsedMonth);
+        }
       } catch {
         // Invalid month format, keep current month
       }
-    } else {
-      // No month in URL, reset to current month
-      setCurrentMonth(new Date());
+    } else if (!contributorId) {
+      // No month in URL and on dashboard, reset to current month
+      setDashboardMonth(new Date());
     }
-  }, [month]);
+  }, [month, contributorId]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && contributorId) {
-        if (format(currentMonth, "yyyy-MM") !== format(new Date(), "yyyy-MM")) {
-          navigate(`/${urlFormattedMonth}`);
+        const dashboardMonthStr = format(dashboardMonth, "MMMM-yyyy").toLowerCase();
+        if (format(dashboardMonth, "yyyy-MM") !== format(new Date(), "yyyy-MM")) {
+          navigate(`/${dashboardMonthStr}`);
         } else {
           navigate('/');
         }
@@ -57,19 +75,20 @@ const Index = () => {
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [contributorId, navigate, currentMonth, urlFormattedMonth]);
+  }, [contributorId, navigate, dashboardMonth]);
 
   const handleMonthChange = (newMonth: Date) => {
-    setCurrentMonth(newMonth);
     const monthString = format(newMonth, "MMMM-yyyy").toLowerCase();
     if (contributorId) {
+      setContributorMonth(newMonth);
       navigate(`/contributor/${contributorId}/${monthString}`);
-    } else if (format(newMonth, "yyyy-MM") !== format(new Date(), "yyyy-MM")) {
-      // Only add month to URL if it's not the current month
-      navigate(`/${monthString}`);
     } else {
-      // If it's the current month, use the clean index route
-      navigate(`/`);
+      setDashboardMonth(newMonth);
+      if (format(newMonth, "yyyy-MM") !== format(new Date(), "yyyy-MM")) {
+        navigate(`/${monthString}`);
+      } else {
+        navigate('/');
+      }
     }
   };
 
@@ -126,7 +145,7 @@ const Index = () => {
           >
             <div className="max-w-7xl mx-auto">
               <Header 
-                currentMonth={currentMonth}
+                currentMonth={dashboardMonth}
                 onPreviousMonth={handlePreviousMonth}
                 onNextMonth={handleNextMonth}
                 onMonthChange={handleMonthChange}
@@ -135,7 +154,7 @@ const Index = () => {
               {isMobile && (
                 <div className="mb-8">
                   <MonthSelector
-                    currentMonth={currentMonth}
+                    currentMonth={dashboardMonth}
                     onPreviousMonth={handlePreviousMonth}
                     onNextMonth={handleNextMonth}
                   />
@@ -147,7 +166,10 @@ const Index = () => {
                   <ContributorCard
                     key={contributor.login}
                     contributor={contributor}
-                    onClick={() => navigate(`/contributor/${contributor.login}/${urlFormattedMonth}`)}
+                    onClick={() => {
+                      setContributorMonth(dashboardMonth);
+                      navigate(`/contributor/${contributor.login}/${urlFormattedMonth}`);
+                    }}
                   />
                 ))}
               </div>
@@ -164,12 +186,13 @@ const Index = () => {
           >
             <ContributorDetail
               login={contributorId}
-              currentMonth={currentMonth}
+              currentMonth={contributorMonth}
               onPreviousMonth={handlePreviousMonth}
               onNextMonth={handleNextMonth}
               onBack={() => {
-                if (format(currentMonth, "yyyy-MM") !== format(new Date(), "yyyy-MM")) {
-                  navigate(`/${urlFormattedMonth}`);
+                const dashboardMonthStr = format(dashboardMonth, "MMMM-yyyy").toLowerCase();
+                if (format(dashboardMonth, "yyyy-MM") !== format(new Date(), "yyyy-MM")) {
+                  navigate(`/${dashboardMonthStr}`);
                 } else {
                   navigate('/');
                 }
