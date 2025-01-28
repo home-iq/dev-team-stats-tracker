@@ -103,6 +103,13 @@ The script provides detailed statistics for:
 - Lines of code added/removed
 - API calls remaining
 
+All output is logged to timestamped files in the `logs` directory for future reference, including:
+- Command execution details
+- API call counts and rate limits
+- Repository processing status
+- Detailed statistics
+- Errors and warnings
+
 ## Error Handling
 
 - Automatically retries failed operations (max 2 retries)

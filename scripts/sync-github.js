@@ -16,7 +16,16 @@ import { calculateRepoStats, calculateContributorScores } from './utils/calculat
 dotenv.config();
 
 const prisma = new PrismaClient();
-const octokit = new Octokit({ auth: process.env.GITHUB_KEY });
+const octokit = new Octokit({
+  auth: process.env.GITHUB_KEY,
+  request: {
+    hook: async (request, options) => {
+      const result = await request(options);
+      await updateApiCallCount();
+      return result;
+    }
+  }
+});
 const GITHUB_ORG = process.env.GITHUB_ORG;
 
 // Constants
@@ -77,14 +86,6 @@ async function updateApiCallCount() {
   apiSpinner.text = chalk.blue(message);
   await log(message);
 }
-
-// Wrap octokit methods to count API calls
-const originalRequest = octokit.request;
-octokit.request = async function(...args) {
-  const result = await originalRequest.apply(this, args);
-  await updateApiCallCount();
-  return result;
-};
 
 // Ensure cache directory exists
 async function ensureCacheDir() {
