@@ -9,14 +9,15 @@ datasource db {
 }
 
 model Team {
-  id           String        @id @default(uuid())
-  name         String
-  githubOrg    String?
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
-  contributors Contributor[]
-  months       Month[]
-  repos        Repo[]
+  id            String        @id @default(uuid())
+  name          String
+  githubOrgId   BigInt?      @unique
+  githubOrgName String?
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  contributors  Contributor[]
+  months        Month[]
+  repos         Repo[]
 }
 
 model Repo {
@@ -122,13 +123,14 @@ model Event {
 
 model Month {
   id        String   @id @default(uuid())
-  date      DateTime @unique
+  date      DateTime
   teamId    String
   stats     Json
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
   team      Team     @relation(fields: [teamId], references: [id])
 
+  @@unique([teamId, date], name: "teamId_date")
   @@index([date])
   @@index([teamId])
 }
