@@ -1,5 +1,6 @@
 import { PrismaClient, EventType, PrStatus } from '@prisma/client';
 import crypto from 'crypto';
+import { calculateContributorScores } from '../scripts/utils/calculate-scores.js';
 
 const prisma = new PrismaClient();
 
@@ -7,6 +8,7 @@ interface GitHubCommit {
   id: string;
   sha: string;
   message: string;
+  repository: string;
   author?: {
     id?: number;
     username?: string;
@@ -32,6 +34,7 @@ interface GitHubPullRequest {
   closed_at: string | null;
   head: { ref: string };
   base: { ref: string };
+  repository: string;
   user: {
     id: number;
     login: string;
@@ -111,54 +114,179 @@ async function updateMonthStats(teamId: string, date: Date, newCommits: GitHubCo
     }
   });
 
-  // Calculate stats from new commits
-  const commitStats = newCommits.reduce((acc, commit) => ({
-    linesAdded: acc.linesAdded + (commit.stats?.additions || 0),
-    linesDeleted: acc.linesDeleted + (commit.stats?.deletions || 0),
-    totalCommits: acc.totalCommits + 1
-  }), { linesAdded: 0, linesDeleted: 0, totalCommits: 0 });
-
-  // Calculate PR stats if a new PR is provided
-  const prStats = newPullRequest ? {
-    totalPrs: 1,
-    openPrs: newPullRequest.state.toUpperCase() === 'OPEN' ? 1 : 0,
-    mergedPrs: newPullRequest.merged ? 1 : 0,
-    closedPrs: newPullRequest.state.toUpperCase() === 'CLOSED' && !newPullRequest.merged ? 1 : 0,
-    prLinesAdded: newPullRequest.additions,
-    prLinesDeleted: newPullRequest.deletions,
-    prComments: newPullRequest.comments + newPullRequest.review_comments
-  } : {
-    totalPrs: 0,
-    openPrs: 0,
-    mergedPrs: 0,
-    closedPrs: 0,
-    prLinesAdded: 0,
-    prLinesDeleted: 0,
-    prComments: 0
-  };
-
-  // Get existing stats or use defaults
+  // Get existing stats or initialize new ones
   const existingStats = monthRecord?.stats as {
-    totalCommits: number;
-    totalPrs: number;
-    openPrs: number;
-    mergedPrs: number;
-    closedPrs: number;
-    linesAdded: number;
-    linesDeleted: number;
-    prComments: number;
-  } | null || {
-    totalCommits: 0,
-    totalPrs: 0,
-    openPrs: 0,
-    mergedPrs: 0,
-    closedPrs: 0,
-    linesAdded: 0,
-    linesDeleted: 0,
-    prComments: 0
+    overall: {
+      totalCommits: number;
+      totalPrs: number;
+      mergedPrs: number;
+      linesAdded: number;
+      linesRemoved: number;
+      activeContributors: number;
+      averageContributionScore: number;
+    };
+    repositories: Record<string, {  // key is githubRepoId
+      name: string;  // store name for reference
+      commits: number;
+      totalPrs: number;
+      mergedPrs: number;
+      linesAdded: number;
+      linesRemoved: number;
+      activeContributors: number;
+    }>;
+    contributors: Record<string, {  // key is githubUserId
+      login: string;  // store login for reference
+      totalCommits: number;
+      totalPrs: number;
+      mergedPrs: number;
+      linesAdded: number;
+      linesRemoved: number;
+      activeRepositories: string[];  // array of githubRepoIds
+      contributionScore: number;
+    }>;
+  } || {
+    overall: {
+      totalCommits: 0,
+      totalPrs: 0,
+      mergedPrs: 0,
+      linesAdded: 0,
+      linesRemoved: 0,
+      activeContributors: 0,
+      averageContributionScore: 0
+    },
+    repositories: {},
+    contributors: {}
   };
 
-  // Create or update month record
+  // Process new commits
+  for (const commit of newCommits) {
+    if (!commit.author?.id || !commit.author.username) continue;
+
+    // Update repository stats
+    const repoId = commit.repository;
+    if (!existingStats.repositories[repoId]) {
+      existingStats.repositories[repoId] = {
+        name: commit.repository,
+        commits: 0,
+        totalPrs: 0,
+        mergedPrs: 0,
+        linesAdded: 0,
+        linesRemoved: 0,
+        activeContributors: 0
+      };
+    }
+    const repoStats = existingStats.repositories[repoId];
+    repoStats.commits++;
+    repoStats.linesAdded += commit.stats?.additions || 0;
+    repoStats.linesRemoved += commit.stats?.deletions || 0;
+
+    // Update contributor stats
+    const userId = commit.author.id.toString();
+    if (!existingStats.contributors[userId]) {
+      existingStats.contributors[userId] = {
+        login: commit.author.username,
+        totalCommits: 0,
+        totalPrs: 0,
+        mergedPrs: 0,
+        linesAdded: 0,
+        linesRemoved: 0,
+        activeRepositories: [],
+        contributionScore: 0
+      };
+    }
+    const contributorStats = existingStats.contributors[userId];
+    contributorStats.totalCommits++;
+    contributorStats.linesAdded += commit.stats?.additions || 0;
+    contributorStats.linesRemoved += commit.stats?.deletions || 0;
+    if (!contributorStats.activeRepositories.includes(repoId)) {
+      contributorStats.activeRepositories.push(repoId);
+    }
+
+    // Update overall stats
+    existingStats.overall.totalCommits++;
+    existingStats.overall.linesAdded += commit.stats?.additions || 0;
+    existingStats.overall.linesRemoved += commit.stats?.deletions || 0;
+  }
+
+  // Process new pull request
+  if (newPullRequest) {
+    const repoId = newPullRequest.repository;
+    const userId = newPullRequest.user.id.toString();
+
+    // Update repository stats
+    if (!existingStats.repositories[repoId]) {
+      existingStats.repositories[repoId] = {
+        name: newPullRequest.repository,
+        commits: 0,
+        totalPrs: 0,
+        mergedPrs: 0,
+        linesAdded: 0,
+        linesRemoved: 0,
+        activeContributors: 0
+      };
+    }
+    const repoStats = existingStats.repositories[repoId];
+    repoStats.totalPrs++;
+    if (newPullRequest.merged) {
+      repoStats.mergedPrs++;
+    }
+    repoStats.linesAdded += newPullRequest.additions;
+    repoStats.linesRemoved += newPullRequest.deletions;
+
+    // Update contributor stats
+    if (!existingStats.contributors[userId]) {
+      existingStats.contributors[userId] = {
+        login: newPullRequest.user.login,
+        totalCommits: 0,
+        totalPrs: 0,
+        mergedPrs: 0,
+        linesAdded: 0,
+        linesRemoved: 0,
+        activeRepositories: [],
+        contributionScore: 0
+      };
+    }
+    const contributorStats = existingStats.contributors[userId];
+    contributorStats.totalPrs++;
+    if (newPullRequest.merged) {
+      contributorStats.mergedPrs++;
+    }
+    contributorStats.linesAdded += newPullRequest.additions;
+    contributorStats.linesRemoved += newPullRequest.deletions;
+    if (!contributorStats.activeRepositories.includes(repoId)) {
+      contributorStats.activeRepositories.push(repoId);
+    }
+
+    // Update overall stats
+    existingStats.overall.totalPrs++;
+    if (newPullRequest.merged) {
+      existingStats.overall.mergedPrs++;
+    }
+    existingStats.overall.linesAdded += newPullRequest.additions;
+    existingStats.overall.linesRemoved += newPullRequest.deletions;
+  }
+
+  // Update active contributors count and recalculate scores
+  existingStats.overall.activeContributors = Object.keys(existingStats.contributors).length;
+  
+  // Calculate contribution scores
+  const allContributorStats = Object.entries(existingStats.contributors).map(([userId, stats]) => ({
+    githubUserId: userId,
+    ...stats  // stats already includes login
+  }));
+  const scores = calculateContributorScores(allContributorStats);
+  
+  // Update contributor scores
+  Object.entries(existingStats.contributors).forEach(([userId, stats]) => {
+    stats.contributionScore = scores[userId]?.score || 0;
+  });
+
+  // Calculate average contribution score
+  const scoreValues = Object.values(scores as { [key: string]: { score: number } }).map(s => s.score);
+  existingStats.overall.averageContributionScore = 
+    scoreValues.length > 0 ? scoreValues.reduce((a, b) => a + b) / scoreValues.length : 0;
+
+  // Update the month record
   await prisma.month.upsert({
     where: {
       teamId_date: {
@@ -169,28 +297,10 @@ async function updateMonthStats(teamId: string, date: Date, newCommits: GitHubCo
     create: {
       teamId,
       date: startOfMonth,
-      stats: {
-        totalCommits: commitStats.totalCommits,
-        totalPrs: prStats.totalPrs,
-        openPrs: prStats.openPrs,
-        mergedPrs: prStats.mergedPrs,
-        closedPrs: prStats.closedPrs,
-        linesAdded: commitStats.linesAdded + prStats.prLinesAdded,
-        linesDeleted: commitStats.linesDeleted + prStats.prLinesDeleted,
-        prComments: prStats.prComments
-      }
+      stats: existingStats
     },
     update: {
-      stats: {
-        totalCommits: existingStats.totalCommits + commitStats.totalCommits,
-        totalPrs: existingStats.totalPrs + prStats.totalPrs,
-        openPrs: existingStats.openPrs + prStats.openPrs,
-        mergedPrs: existingStats.mergedPrs + prStats.mergedPrs,
-        closedPrs: existingStats.closedPrs + prStats.closedPrs,
-        linesAdded: existingStats.linesAdded + commitStats.linesAdded + prStats.prLinesAdded,
-        linesDeleted: existingStats.linesDeleted + commitStats.linesDeleted + prStats.prLinesDeleted,
-        prComments: existingStats.prComments + prStats.prComments
-      }
+      stats: existingStats
     }
   });
 }
@@ -244,7 +354,10 @@ const worker = {
       
       switch (event) {
         case 'push':
-          commits = (data.commits || []) as GitHubCommit[];
+          commits = (data.commits || []).map(commit => ({
+            ...commit,
+            repository: data.repository.name
+          })) as GitHubCommit[];
           for (const commit of commits) {
             // Skip if no author info or username
             if (!commit.author?.id || !commit.author.username) continue;
@@ -297,7 +410,10 @@ const worker = {
           
         case 'pull_request':
           action = data.action;
-          pr = data.pull_request as GitHubPullRequest;
+          pr = {
+            ...data.pull_request,
+            repository: data.repository.name
+          } as GitHubPullRequest;
           
           if (!pr?.user?.id) break;
 
@@ -358,8 +474,7 @@ const worker = {
               linesAdded: pr.additions,
               linesDeleted: pr.deletions,
               commits: pr.commits,
-              comments: pr.comments,
-              reviews: pr.review_comments
+              comments: pr.comments + pr.review_comments
             }
           });
 

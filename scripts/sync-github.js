@@ -206,11 +206,10 @@ async function processMonth(date, progressState, teamId) {
   const monthStats = {
     overall: {
       totalCommits: 0,
-      totalPullRequests: 0,
-      mergedPullRequests: 0,
-      totalLinesAdded: 0,
-      totalLinesRemoved: 0,
-      activeContributors: 0,
+      totalPrs: 0,
+      mergedPrs: 0,
+      linesAdded: 0,
+      linesRemoved: 0,
       averageContributionScore: 0
     },
     repositories: {},
@@ -220,7 +219,7 @@ async function processMonth(date, progressState, teamId) {
   // Process each repository
   const spinner = ora().start();
   for (const repo of repos) {
-    if (completedRepos.has(repo.name)) {
+    if (completedRepos.has(repo.id)) {
       spinner.text = `Skipping completed repository: ${repo.name}`;
       continue;
     }
@@ -231,6 +230,19 @@ async function processMonth(date, progressState, teamId) {
       // Get or create repo record
       const dbRepo = await getOrCreateRepo(teamId, repo);
 
+      // Initialize repository stats if not exists
+      if (!monthStats.repositories[repo.id]) {
+        monthStats.repositories[repo.id] = {
+          name: repo.name,
+          commits: 0,
+          totalPrs: 0,
+          mergedPrs: 0,
+          linesAdded: 0,
+          linesRemoved: 0,
+          activeContributors: 0
+        };
+      }
+
       // Fetch monthly data
       const [commits, pullRequests] = await Promise.all([
         fetchMonthlyCommits(repo, startDate, endDate),
@@ -239,87 +251,138 @@ async function processMonth(date, progressState, teamId) {
 
       // Process commits
       for (const commit of commits) {
+        if (!commit.author?.id) continue;
+
         const contributor = await getOrCreateContributor(teamId, commit.author);
         if (contributor) {
           await createCommit(commit, dbRepo.id, contributor.id);
+
+          // Update repository stats
+          const repoStats = monthStats.repositories[repo.id];
+          repoStats.commits++;
+          repoStats.linesAdded += commit.stats?.additions || 0;
+          repoStats.linesRemoved += commit.stats?.deletions || 0;
+
+          // Update contributor stats
+          const userId = commit.author.id.toString();
+          if (!monthStats.contributors[userId]) {
+            monthStats.contributors[userId] = {
+              login: commit.author.login,
+              totalCommits: 0,
+              totalPrs: 0,
+              mergedPrs: 0,
+              linesAdded: 0,
+              linesRemoved: 0,
+              activeRepositories: [],
+              contributionScore: 0
+            };
+          }
+          const contributorStats = monthStats.contributors[userId];
+          contributorStats.totalCommits++;
+          contributorStats.linesAdded += commit.stats?.additions || 0;
+          contributorStats.linesRemoved += commit.stats?.deletions || 0;
+          if (!contributorStats.activeRepositories.includes(repo.id)) {
+            contributorStats.activeRepositories.push(repo.id);
+          }
+
+          // Update overall stats
+          monthStats.overall.totalCommits++;
+          monthStats.overall.linesAdded += commit.stats?.additions || 0;
+          monthStats.overall.linesRemoved += commit.stats?.deletions || 0;
         }
       }
 
       // Process pull requests
       for (const pr of pullRequests) {
+        if (!pr.user?.id) continue;
+
         const contributor = await getOrCreateContributor(teamId, pr.user);
         if (contributor) {
           await createOrUpdatePullRequest(pr, dbRepo.id, contributor.id);
+
+          // Update repository stats
+          const repoStats = monthStats.repositories[repo.id];
+          repoStats.totalPrs++;
+          if (pr.merged) {
+            repoStats.mergedPrs++;
+          }
+          repoStats.linesAdded += pr.additions;
+          repoStats.linesRemoved += pr.deletions;
+
+          // Update contributor stats
+          const userId = pr.user.id.toString();
+          if (!monthStats.contributors[userId]) {
+            monthStats.contributors[userId] = {
+              login: pr.user.login,
+              totalCommits: 0,
+              totalPrs: 0,
+              mergedPrs: 0,
+              linesAdded: 0,
+              linesRemoved: 0,
+              activeRepositories: [],
+              contributionScore: 0
+            };
+          }
+          const contributorStats = monthStats.contributors[userId];
+          contributorStats.totalPrs++;
+          if (pr.merged) {
+            contributorStats.mergedPrs++;
+          }
+          contributorStats.linesAdded += pr.additions;
+          contributorStats.linesRemoved += pr.deletions;
+          if (!contributorStats.activeRepositories.includes(repo.id)) {
+            contributorStats.activeRepositories.push(repo.id);
+          }
+
+          // Update overall stats
+          monthStats.overall.totalPrs++;
+          if (pr.merged) {
+            monthStats.overall.mergedPrs++;
+          }
+          monthStats.overall.linesAdded += pr.additions;
+          monthStats.overall.linesRemoved += pr.deletions;
         }
       }
 
-      // Calculate repository stats
-      const repoStats = calculateRepoStats(commits, pullRequests);
-      monthStats.repositories[repo.name] = {
-        ...repoStats.totals,
-        contributors: repoStats.contributors
-      };
+      // Update active contributors count
+      repoStats.activeContributors = Object.values(monthStats.contributors)
+        .filter(c => c.activeRepositories.includes(repo.id))
+        .length;
 
-      // Update overall stats
-      monthStats.overall.totalCommits += repoStats.totals.commits;
-      monthStats.overall.totalPullRequests += repoStats.totals.pullRequests;
-      monthStats.overall.mergedPullRequests += repoStats.totals.mergedPullRequests;
-      monthStats.overall.totalLinesAdded += repoStats.totals.linesAdded;
-      monthStats.overall.totalLinesRemoved += repoStats.totals.linesRemoved;
-
-      // Aggregate contributor stats across repos
-      Object.entries(repoStats.contributors).forEach(([login, stats]) => {
-        if (!monthStats.contributors[login]) {
-          monthStats.contributors[login] = {
-            totalCommits: 0,
-            totalPullRequests: 0,
-            mergedPullRequests: 0,
-            linesAdded: 0,
-            linesRemoved: 0,
-            tabs: 0,
-            premiumRequests: 0,
-            activeRepositories: []
-          };
-        }
-
-        const contributorStats = monthStats.contributors[login];
-        contributorStats.totalCommits += stats.commits;
-        contributorStats.totalPullRequests += stats.pullRequests;
-        contributorStats.mergedPullRequests += stats.mergedPullRequests;
-        contributorStats.linesAdded += stats.linesAdded;
-        contributorStats.linesRemoved += stats.linesRemoved;
-        contributorStats.activeRepositories.push(repo.name);
-      });
-
-      completedRepos.add(repo.name);
+      completedRepos.add(repo.id);
       await saveProgressState({
         lastSuccessfulRun: {
           month: format(date, 'yyyy-MM'),
           completedRepos: Array.from(completedRepos),
-          currentRepo: repo.name,
+          currentRepo: repo.id,
           githubApi: {
             callsRemaining: (await octokit.rateLimit.get()).data.rate.remaining,
             resetTimestamp: new Date((await octokit.rateLimit.get()).data.rate.reset * 1000).toISOString()
           }
         }
       });
-
     } catch (error) {
       spinner.fail(`Failed to process repository: ${repo.name}`);
       throw error;
     }
   }
 
-  // Calculate overall contribution scores
-  const allContributorStats = Object.values(monthStats.contributors);
-  Object.entries(monthStats.contributors).forEach(([login, stats]) => {
-    stats.contributionScore = calculateContributorScore(stats, allContributorStats);
+  // Calculate contribution scores
+  const allContributorStats = Object.entries(monthStats.contributors).map(([userId, stats]) => ({
+    githubUserId: userId,
+    ...stats
+  }));
+  const scores = calculateContributorScore(allContributorStats);
+  
+  // Update contributor scores
+  Object.entries(monthStats.contributors).forEach(([userId, stats]) => {
+    stats.contributionScore = scores[userId]?.score || 0;
   });
 
   // Calculate average contribution score
-  const scores = Object.values(monthStats.contributors).map(c => c.contributionScore);
+  const scoreValues = Object.values(scores).map(s => s.score);
   monthStats.overall.averageContributionScore = 
-    scores.length > 0 ? scores.reduce((a, b) => a + b) / scores.length : 0;
+    scoreValues.length > 0 ? scoreValues.reduce((a, b) => a + b) / scoreValues.length : 0;
 
   spinner.succeed('Completed processing all repositories');
   return monthStats;
@@ -339,10 +402,10 @@ async function updateMonthStats(teamId, monthStart, newStats) {
 
   if (existingMonth) {
     // Preserve tabs and premiumRequests for existing contributors
-    Object.keys(newStats.contributors).forEach(login => {
-      if (existingMonth.stats.contributors[login]) {
-        newStats.contributors[login].tabs = existingMonth.stats.contributors[login].tabs;
-        newStats.contributors[login].premiumRequests = existingMonth.stats.contributors[login].premiumRequests;
+    Object.keys(newStats.contributors).forEach(userId => {
+      if (existingMonth.stats.contributors[userId]) {
+        newStats.contributors[userId].tabs = existingMonth.stats.contributors[userId].tabs;
+        newStats.contributors[userId].premiumRequests = existingMonth.stats.contributors[userId].premiumRequests;
       }
     });
   }
@@ -371,31 +434,36 @@ function formatNumber(num) {
 // Print monthly summary
 function printMonthSummary(monthStats, dbStats) {
   console.log('\nRepository Statistics:');
-  Object.entries(monthStats.repositories).forEach(([repo, stats]) => {
-    console.log(chalk.cyan(`\n${repo}`));
+  Object.entries(monthStats.repositories).forEach(([repoId, stats]) => {
+    console.log(chalk.cyan(`\n${stats.name}`));
     console.log(chalk.gray('├──'), `Commits: ${formatNumber(stats.commits)} pulled, ` +
-      `${formatNumber(dbStats[repo]?.newCommits || 0)} new, ` +
-      `${formatNumber(dbStats[repo]?.existingCommits || 0)} existing`);
-    console.log(chalk.gray('├──'), `Pull Requests: ${formatNumber(stats.pullRequests)} pulled, ` +
-      `${formatNumber(dbStats[repo]?.newPRs || 0)} new, ` +
-      `${formatNumber(dbStats[repo]?.existingPRs || 0)} existing`);
+      `${formatNumber(dbStats[repoId]?.newCommits || 0)} new, ` +
+      `${formatNumber(dbStats[repoId]?.existingCommits || 0)} existing`);
+    console.log(chalk.gray('├──'), `Pull Requests: ${formatNumber(stats.totalPrs)} pulled, ` +
+      `${formatNumber(dbStats[repoId]?.newPRs || 0)} new, ` +
+      `${formatNumber(dbStats[repoId]?.existingPRs || 0)} existing`);
     console.log(chalk.gray('└──'), `Contributors: ${formatNumber(stats.activeContributors)} total`);
   });
+
+  // Get contributor logins for display
+  const contributorCount = Object.values(monthStats.contributors)
+    .map(stats => stats.login)
+    .length;
 
   console.log(chalk.cyan('\nTotal Statistics:'));
   console.log(chalk.gray('├──'), `Commits: ${formatNumber(monthStats.overall.totalCommits)} pulled, ` +
     `${formatNumber(dbStats.total.newCommits)} new, ` +
     `${formatNumber(dbStats.total.existingCommits)} existing`);
-  console.log(chalk.gray('├──'), `Pull Requests: ${formatNumber(monthStats.overall.totalPullRequests)} pulled, ` +
+  console.log(chalk.gray('├──'), `Pull Requests: ${formatNumber(monthStats.overall.totalPrs)} pulled, ` +
     `${formatNumber(dbStats.total.newPRs)} new, ` +
     `${formatNumber(dbStats.total.existingPRs)} existing`);
-  console.log(chalk.gray('├──'), `Contributors: ${formatNumber(Object.keys(monthStats.contributors).length)} total`);
+  console.log(chalk.gray('├──'), `Contributors: ${formatNumber(contributorCount)} total`);
   console.log(chalk.gray('└──'), `API Calls Remaining: ${formatNumber(dbStats.apiCallsRemaining)}`);
 
   console.log(chalk.cyan('\nMonth Stats:'));
-  console.log(chalk.gray('├──'), `Total Lines Added: ${formatNumber(monthStats.overall.totalLinesAdded)}`);
-  console.log(chalk.gray('├──'), `Total Lines Removed: ${formatNumber(monthStats.overall.totalLinesRemoved)}`);
-  console.log(chalk.gray('└──'), `Total Merged PRs: ${formatNumber(monthStats.overall.mergedPullRequests)}`);
+  console.log(chalk.gray('├──'), `Total Lines Added: ${formatNumber(monthStats.overall.linesAdded)}`);
+  console.log(chalk.gray('├──'), `Total Lines Removed: ${formatNumber(monthStats.overall.linesRemoved)}`);
+  console.log(chalk.gray('└──'), `Total Merged PRs: ${formatNumber(monthStats.overall.mergedPrs)}`);
 }
 
 // Get or create team based on GitHub organization
