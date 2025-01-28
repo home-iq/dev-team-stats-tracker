@@ -48,16 +48,40 @@ npm run sync -- --start-date 2024-01 --months 1 --force
 
 ## Features
 
-- Fetches commits, pull requests, and contributor activity
-- Calculates contribution scores based on:
-  - Lines of code (50%)
-  - Merged pull requests (10%)
-  - Commits (10%)
-  - Tabs (10%)
-  - Premium requests (20%)
-- Handles GitHub API rate limits with automatic waiting
-- Saves progress state for resumability
-- Preserves existing tabs and premium requests when updating stats
+- Fetches and stores:
+  - Commits (messages, stats, authors)
+  - Pull requests (title, description, status, stats)
+  - Contributor information (GitHub IDs, logins, avatars)
+  - Repository details (GitHub IDs, names, URLs)
+
+- Robust Data Model:
+  - Uses permanent GitHub IDs as keys
+  - Stores friendly names (repo names, user logins) for display
+  - Maintains historical data integrity
+
+- Monthly Statistics:
+  - Lines of code added/removed
+  - Total and merged pull requests
+  - Commit counts
+  - Active contributors per repository
+  - Contribution scores calculated from:
+    - Lines of code (50%)
+    - Merged pull requests (10%)
+    - Commits (10%)
+    - Tabs (10%)
+    - Premium requests (20%)
+  - Preserves existing tabs and premium requests
+
+- GitHub API Integration:
+  - Handles rate limits with automatic waiting
+  - Paginates through results (100 records per page)
+  - Efficient data fetching with date filtering
+
+- Progress and Recovery:
+  - Saves progress state for resumability
+  - Tracks completed repositories
+  - Preserves API rate limit status
+  - Supports force sync when needed
 
 ## Progress Tracking
 
