@@ -57,6 +57,7 @@ npm run sync -- --start-date 2024-01 --months 1 --force
 - Robust Data Model:
   - Uses permanent GitHub IDs as keys
   - Stores friendly names (repo names, user logins) for display
+  - Tracks repository and contributor relationships
   - Maintains historical data integrity
 
 - Monthly Statistics:
