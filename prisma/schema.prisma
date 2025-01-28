@@ -56,6 +56,7 @@ model Commit {
   linesAdded     Int
   linesDeleted   Int
   committedAt    DateTime
+  url            String?     // GitHub URL for the commit
   repoId         String
   authorId       String
   createdAt      DateTime    @default(now())
@@ -80,6 +81,7 @@ model PullRequest {
   targetBranch String
   mergedAt     DateTime?
   closedAt     DateTime?
+  url          String?     // GitHub URL for the pull request
   linesAdded   Int
   linesDeleted Int
   commits      Int

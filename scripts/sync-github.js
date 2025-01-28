@@ -10,7 +10,7 @@ import { parse, format, addMonths, startOfMonth } from 'date-fns';
 import fs from 'fs/promises';
 import path from 'path';
 import { setTimeout } from 'timers/promises';
-import { calculateRepoStats, calculateContributorScore } from './utils/calculate-scores.js';
+import { calculateRepoStats, calculateContributorScores } from './utils/calculate-scores.js';
 
 // Load environment variables
 dotenv.config();
@@ -22,8 +22,69 @@ const GITHUB_ORG = process.env.GITHUB_ORG;
 // Constants
 const CACHE_DIR = path.join(process.cwd(), '.cache');
 const STATE_FILE = path.join(CACHE_DIR, 'github-sync-state.json');
+const LOG_DIR = path.join(process.cwd(), 'logs');
+const LOG_FILE = path.join(LOG_DIR, `sync-${format(new Date(), 'yyyy-MM-dd-HH-mm-ss')}.log`);
 const MAX_RETRIES = 2;
 const RETRY_DELAY = 5000; // 5 seconds
+
+// Track API calls
+let apiCallCounter = 0;
+const apiSpinner = ora({
+  text: chalk.blue('GitHub API Calls: 0'),
+  color: 'blue',
+  spinner: 'dots'
+}).start();
+
+// Ensure directories exist
+async function ensureDirectories() {
+  try {
+    await fs.mkdir(CACHE_DIR, { recursive: true });
+    await fs.mkdir(LOG_DIR, { recursive: true });
+  } catch (err) {
+    if (err.code !== 'EEXIST') throw err;
+  }
+}
+
+// Log message to both console and file
+async function log(message, type = 'info') {
+  const timestamp = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
+  const logMessage = `[${timestamp}] ${message}\n`;
+  
+  // Write to console (with colors)
+  switch (type) {
+    case 'error':
+      console.error(chalk.red(message));
+      break;
+    case 'warning':
+      console.warn(chalk.yellow(message));
+      break;
+    case 'success':
+      console.log(chalk.green(message));
+      break;
+    default:
+      console.log(message);
+  }
+  
+  // Write to file (without colors)
+  await fs.appendFile(LOG_FILE, logMessage);
+}
+
+// Update the counter and display
+async function updateApiCallCount() {
+  apiCallCounter++;
+  const rateLimit = await octokit.rateLimit.get();
+  const message = `GitHub API Calls: ${apiCallCounter.toLocaleString()} (${rateLimit.data.rate.remaining.toLocaleString()} remaining)`;
+  apiSpinner.text = chalk.blue(message);
+  await log(message);
+}
+
+// Wrap octokit methods to count API calls
+const originalRequest = octokit.request;
+octokit.request = async function(...args) {
+  const result = await originalRequest.apply(this, args);
+  await updateApiCallCount();
+  return result;
+};
 
 // Ensure cache directory exists
 async function ensureCacheDir() {
@@ -147,15 +208,11 @@ async function withRetry(operation, context = '', progressState = null) {
   
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
-      if (attempt > 0) {
-        console.log(chalk.yellow(`Retry attempt ${attempt}/${MAX_RETRIES} for ${context}...`));
-        await setTimeout(RETRY_DELAY);
-      }
       return await operation();
     } catch (error) {
       lastError = error;
       
-      // Check if we hit rate limit
+      // Only retry for rate limits or network errors
       if (error.status === 403 && error.message.includes('rate limit')) {
         const rateLimit = await octokit.rateLimit.get();
         const reset = new Date(rateLimit.data.rate.reset * 1000);
@@ -180,7 +237,16 @@ async function withRetry(operation, context = '', progressState = null) {
         await setTimeout(waitTime * 1000);
         attempt--; // Don't count rate limit retries
         continue;
+      } else if (error.code === 'ECONNRESET' || error.code === 'ETIMEDOUT') {
+        if (attempt < MAX_RETRIES) {
+          console.log(chalk.yellow(`Retry attempt ${attempt + 1}/${MAX_RETRIES} for ${context}...`));
+          await setTimeout(RETRY_DELAY);
+          continue;
+        }
       }
+      
+      // For other errors, throw immediately
+      throw error;
     }
   }
   
@@ -191,6 +257,7 @@ async function withRetry(operation, context = '', progressState = null) {
 async function processMonth(date, progressState, teamId) {
   const startDate = startOfMonth(date);
   const endDate = startOfMonth(addMonths(date, 1));
+  const monthStr = format(date, 'MMMM yyyy');  // e.g., "January 2024"
   
   // Check if we should resume from a previous state
   let completedRepos = new Set();
@@ -372,7 +439,7 @@ async function processMonth(date, progressState, teamId) {
     githubUserId: userId,
     ...stats
   }));
-  const scores = calculateContributorScore(allContributorStats);
+  const scores = calculateContributorScores(allContributorStats);
   
   // Update contributor scores
   Object.entries(monthStats.contributors).forEach(([userId, stats]) => {
@@ -384,7 +451,7 @@ async function processMonth(date, progressState, teamId) {
   monthStats.overall.averageContributionScore = 
     scoreValues.length > 0 ? scoreValues.reduce((a, b) => a + b) / scoreValues.length : 0;
 
-  spinner.succeed('Completed processing all repositories');
+  spinner.succeed(`Completed processing all repositories for ${monthStr}`);
   return monthStats;
 }
 
@@ -431,39 +498,87 @@ function formatNumber(num) {
   return num.toLocaleString();
 }
 
-// Print monthly summary
-function printMonthSummary(monthStats, dbStats) {
-  console.log('\nRepository Statistics:');
+// Print monthly summary (updated to log to file)
+async function printMonthSummary(monthStats, dbStats) {
+  const lines = [];
+  
+  lines.push('\nRepository Statistics:');
   Object.entries(monthStats.repositories).forEach(([repoId, stats]) => {
-    console.log(chalk.cyan(`\n${stats.name}`));
-    console.log(chalk.gray('├──'), `Commits: ${formatNumber(stats.commits)} pulled, ` +
+    lines.push(`\n${stats.name}`);
+    lines.push(`├── Commits: ${formatNumber(stats.commits)} pulled, ` +
       `${formatNumber(dbStats[repoId]?.newCommits || 0)} new, ` +
       `${formatNumber(dbStats[repoId]?.existingCommits || 0)} existing`);
-    console.log(chalk.gray('├──'), `Pull Requests: ${formatNumber(stats.totalPrs)} pulled, ` +
+    lines.push(`├── Pull Requests: ${formatNumber(stats.totalPrs)} pulled, ` +
       `${formatNumber(dbStats[repoId]?.newPRs || 0)} new, ` +
       `${formatNumber(dbStats[repoId]?.existingPRs || 0)} existing`);
-    console.log(chalk.gray('└──'), `Contributors: ${formatNumber(stats.activeContributors)} total`);
+    lines.push(`└── Contributors: ${formatNumber(stats.activeContributors)} total, ` +
+      `${formatNumber(dbStats[repoId]?.newContributors || 0)} new, ` +
+      `${formatNumber((stats.activeContributors || 0) - (dbStats[repoId]?.newContributors || 0))} existing`);
   });
 
-  // Get contributor logins for display
-  const contributorCount = Object.values(monthStats.contributors)
-    .map(stats => stats.login)
-    .length;
+  const contributorCount = Object.values(monthStats.contributors).length;
+  const newContributors = dbStats.total.newContributors || 0;
+  const existingContributors = contributorCount - newContributors;
 
-  console.log(chalk.cyan('\nTotal Statistics:'));
-  console.log(chalk.gray('├──'), `Commits: ${formatNumber(monthStats.overall.totalCommits)} pulled, ` +
+  lines.push('\nTotal Statistics:');
+  lines.push(`├── Commits: ${formatNumber(monthStats.overall.totalCommits)} pulled, ` +
     `${formatNumber(dbStats.total.newCommits)} new, ` +
     `${formatNumber(dbStats.total.existingCommits)} existing`);
-  console.log(chalk.gray('├──'), `Pull Requests: ${formatNumber(monthStats.overall.totalPrs)} pulled, ` +
+  lines.push(`├── Pull Requests: ${formatNumber(monthStats.overall.totalPrs)} pulled, ` +
     `${formatNumber(dbStats.total.newPRs)} new, ` +
     `${formatNumber(dbStats.total.existingPRs)} existing`);
-  console.log(chalk.gray('├──'), `Contributors: ${formatNumber(contributorCount)} total`);
-  console.log(chalk.gray('└──'), `API Calls Remaining: ${formatNumber(dbStats.apiCallsRemaining)}`);
+  lines.push(`├── Contributors: ${formatNumber(contributorCount)} total, ` +
+    `${formatNumber(newContributors)} new, ` +
+    `${formatNumber(existingContributors)} existing`);
+  lines.push(`└── API Calls Remaining: ${formatNumber(dbStats.apiCallsRemaining)}`);
 
-  console.log(chalk.cyan('\nMonth Stats:'));
-  console.log(chalk.gray('├──'), `Total Lines Added: ${formatNumber(monthStats.overall.linesAdded)}`);
-  console.log(chalk.gray('├──'), `Total Lines Removed: ${formatNumber(monthStats.overall.linesRemoved)}`);
-  console.log(chalk.gray('└──'), `Total Merged PRs: ${formatNumber(monthStats.overall.mergedPrs)}`);
+  lines.push('\nMonth Stats:');
+  
+  lines.push('Overall:');
+  lines.push(`├── Total Commits: ${formatNumber(monthStats.overall.totalCommits)}`);
+  lines.push(`├── Total Pull Requests: ${formatNumber(monthStats.overall.totalPrs)}`);
+  lines.push(`├── Merged Pull Requests: ${formatNumber(monthStats.overall.mergedPrs)}`);
+  lines.push(`├── Lines Added: ${formatNumber(monthStats.overall.linesAdded)}`);
+  lines.push(`├── Lines Removed: ${formatNumber(monthStats.overall.linesRemoved)}`);
+  lines.push(`└── Average Contribution Score: ${monthStats.overall.averageContributionScore.toFixed(2)}`);
+
+  lines.push('\nRepository Activity:');
+  Object.entries(monthStats.repositories).forEach(([repoId, stats], index, array) => {
+    const isLast = index === array.length - 1;
+    lines.push(`${isLast ? '└──' : '├──'} ${stats.name}`);
+    lines.push(`${isLast ? '    └──' : '    ├──'} ` +
+      `Commits: ${formatNumber(stats.commits)}, ` +
+      `PRs: ${formatNumber(stats.totalPrs)} (${formatNumber(stats.mergedPrs)} merged), ` +
+      `Lines: +${formatNumber(stats.linesAdded)}/-${formatNumber(stats.linesRemoved)}, ` +
+      `Active Contributors: ${formatNumber(stats.activeContributors)}`);
+  });
+
+  lines.push('\nContributor Activity:');
+  Object.entries(monthStats.contributors).forEach(([userId, stats], index, array) => {
+    const isLast = index === array.length - 1;
+    lines.push(`${isLast ? '└──' : '├──'} ${stats.login}`);
+    lines.push(`${isLast ? '    └──' : '    ├──'} ` +
+      `Commits: ${formatNumber(stats.totalCommits)}, ` +
+      `PRs: ${formatNumber(stats.totalPrs)} (${formatNumber(stats.mergedPrs)} merged), ` +
+      `Lines: +${formatNumber(stats.linesAdded)}/-${formatNumber(stats.linesRemoved)}, ` +
+      `Active in ${formatNumber(stats.activeRepositories.length)} repos, ` +
+      `Score: ${stats.contributionScore.toFixed(2)}`);
+  });
+
+  // Print to console with colors
+  lines.forEach(line => {
+    if (line.startsWith('\n')) console.log('');
+    if (line.includes('Statistics:') || line.includes('Activity:') || line.includes('Overall:')) {
+      console.log(chalk.cyan(line));
+    } else if (line.match(/^[^├└]+$/)) {
+      console.log(chalk.yellow(line));
+    } else {
+      console.log(chalk.gray(line.includes('└──') ? line : line.replace('├──', '├──')));
+    }
+  });
+
+  // Write to log file without colors
+  await log(lines.join('\n'));
 }
 
 // Get or create team based on GitHub organization
@@ -544,6 +659,7 @@ async function createCommit(commit, repoId, authorId) {
       linesAdded: commit.stats.additions,
       linesDeleted: commit.stats.deletions,
       committedAt: new Date(commit.date),
+      url: `https://github.com/${GITHUB_ORG}/${repo.name}/commit/${commit.sha}`,
       repoId: repoId,
       authorId: authorId
     },
@@ -566,11 +682,12 @@ async function createOrUpdatePullRequest(pr, repoId, authorId) {
       targetBranch: pr.base.ref,
       mergedAt: pr.mergedAt ? new Date(pr.mergedAt) : null,
       closedAt: pr.closedAt ? new Date(pr.closedAt) : null,
-      linesAdded: pr.additions,
-      linesDeleted: pr.deletions,
-      commits: pr.commits,
-      comments: pr.comments,
-      reviews: pr.review_comments,
+      url: `https://github.com/${GITHUB_ORG}/${repo.name}/pull/${pr.number}`,
+      linesAdded: pr.additions || 0,
+      linesDeleted: pr.deletions || 0,
+      commits: pr.commits || 0,
+      comments: (pr.comments || 0) + (pr.review_comments || 0),
+      reviews: pr.review_comments || 0,
       authorId: authorId,
       repoId: repoId
     },
@@ -580,11 +697,12 @@ async function createOrUpdatePullRequest(pr, repoId, authorId) {
       isMerged: pr.merged,
       mergedAt: pr.mergedAt ? new Date(pr.mergedAt) : null,
       closedAt: pr.closedAt ? new Date(pr.closedAt) : null,
-      linesAdded: pr.additions,
-      linesDeleted: pr.deletions,
-      commits: pr.commits,
-      comments: pr.comments,
-      reviews: pr.review_comments
+      url: `https://github.com/${GITHUB_ORG}/${repo.name}/pull/${pr.number}`,
+      linesAdded: pr.additions || 0,
+      linesDeleted: pr.deletions || 0,
+      commits: pr.commits || 0,
+      comments: (pr.comments || 0) + (pr.review_comments || 0),
+      reviews: pr.review_comments || 0
     }
   });
 }
@@ -601,6 +719,10 @@ const options = program.opts();
 // Main execution
 async function main() {
   try {
+    await ensureDirectories();
+    await log('Starting GitHub sync script');
+    await log(`Command: sync-github.js --start-date ${options.startDate} --months ${options.months}${options.force ? ' --force' : ''}`);
+    
     // Validate start date
     const startDate = parse(options.startDate, 'yyyy-MM', new Date());
     if (isNaN(startDate.getTime())) {
@@ -619,7 +741,7 @@ async function main() {
     // Process each month
     for (let i = 0; i < options.months; i++) {
       const currentMonth = startOfMonth(addMonths(startDate, i));
-      const monthStr = format(currentMonth, 'yyyy-MM');
+      const monthStr = format(currentMonth, 'MMMM yyyy');
       
       console.log(chalk.cyan(`\nProcessing ${monthStr}...`));
       const spinner = ora('Starting monthly processing...').start();
@@ -633,7 +755,7 @@ async function main() {
 
         spinner.succeed(`Completed processing ${monthStr}`);
         await updateMonthStats(teamId, currentMonth, monthStats);
-        printMonthSummary(monthStats);
+        await printMonthSummary(monthStats);
 
       } catch (error) {
         spinner.fail(`Failed to process ${monthStr}`);
@@ -641,12 +763,12 @@ async function main() {
       }
     }
 
-    console.log(chalk.green('\nSync completed successfully!'));
+    await log('Sync completed successfully!', 'success');
 
   } catch (error) {
-    console.error(chalk.red('\nError:'), error.message);
+    await log(`Error: ${error.message}`, 'error');
     if (error.status === 401) {
-      console.error(chalk.red('Authentication failed. Please check your GITHUB_KEY.'));
+      await log('Authentication failed. Please check your GITHUB_KEY.', 'error');
     }
     process.exit(1);
   } finally {
