@@ -13,7 +13,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "sync": "node scripts/sync-github.js",
-    "dev:wrangler": "wrangler pages dev -- npm run dev"
+    "dev:wrangler": "wrangler pages dev --compatibility-date=2024-01-29 -- npm run dev"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",
@@ -85,7 +85,6 @@
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
     "eslint-plugin-react-refresh": "^0.4.9",
     "globals": "^15.9.0",
-    "ngrok": "^5.0.0-beta.2",
     "ora": "^8.1.1",
     "postcss": "^8.4.47",
     "prisma": "^6.2.1",

@@ -70,11 +70,7 @@ To develop and test the webhook functionality locally, we use Wrangler (Cloudfla
    npm install
    ```
 
-2. Create a `.dev.vars` file in your project root with your environment variables:
-   ```
-   GITHUB_WEBHOOK_SECRET=your_webhook_secret
-   GITHUB_KEY=your_github_token
-   ```
+2. Create a `.dev.vars` file in your project root with your environment variables
 
 3. Start the development server:
    ```bash
@@ -84,12 +80,26 @@ To develop and test the webhook functionality locally, we use Wrangler (Cloudfla
 
 ### Setup ngrok for Webhook Testing
 
-1. In a new terminal window, start ngrok (installed as a project dependency):
+1. Sign up for a free ngrok account at https://dashboard.ngrok.com/signup
+
+2. Get your authtoken from https://dashboard.ngrok.com/get-started/your-authtoken
+
+3. Install ngrok globally:
    ```bash
-   npx ngrok http 8788
+   npm install -g ngrok
    ```
 
-2. Copy the ngrok URL (e.g., `https://xxxx-xx-xx-xxx-xxx.ngrok.io`) and update your GitHub webhook settings:
+4. Configure ngrok with your token:
+   ```bash
+   ngrok config add-authtoken your_auth_token_here
+   ```
+
+5. Start ngrok:
+   ```bash
+   ngrok http 8788
+   ```
+
+6. Copy the ngrok URL (e.g., `https://xxxx-xx-xx-xxx-xxx.ngrok.io`) and update your GitHub webhook settings:
    - Go to your repository/organization settings
    - Navigate to Webhooks
    - Update the Payload URL to: `https://xxxx-xx-xx-xxx-xxx.ngrok.io/github-webhook`

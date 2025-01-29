@@ -10,6 +10,8 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    // Allow all ngrok-free.app subdomains
+    allowedHosts: ['.ngrok-free.app'],
     middleware: [
       {
         name: 'github-webhook',
