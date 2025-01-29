@@ -2,6 +2,7 @@
 
 import { program } from 'commander';
 import { Octokit } from '@octokit/rest';
+import { paginateRest } from "@octokit/plugin-paginate-rest";
 import { PrismaClient } from '@prisma/client';
 import dotenv from 'dotenv';
 import ora from 'ora';
@@ -16,35 +17,81 @@ import { calculateRepoStats, calculateContributorScores } from './utils/calculat
 dotenv.config();
 
 const prisma = new PrismaClient();
-const octokit = new Octokit({
-  auth: process.env.GITHUB_KEY,
-  request: {
-    hook: async (request, options) => {
-      try {
-        // Increment counter before the request
-        apiCallCounter++;
-        apiSpinner.text = `GitHub API Calls: ${apiCallCounter.toLocaleString()}`;
-        
-        const result = await request(options);
-        
-        // Update remaining calls after the request
-        const rateLimit = result.headers?.['x-ratelimit-remaining'];
-        if (rateLimit) {
-          apiSpinner.text = `GitHub API Calls: ${apiCallCounter.toLocaleString()} (${rateLimit} remaining)`;
+let apiCallCounter = 0;
+let pendingWrites = 0;
+let activeSpinner = null;
+let octokit = null;
+
+// Create Octokit with pagination plugin
+const MyOctokit = Octokit.plugin(paginateRest);
+
+// Create Octokit instance with request tracking
+function initializeOctokit() {
+  octokit = new MyOctokit({
+    auth: process.env.GITHUB_KEY,
+    request: {
+      hook: async (request, options) => {
+        try {
+          // Get current timestamp before the request
+          const timestamp = format(new Date(), 'HH:mm:ss.SSS');
+          const method = options.method || 'GET';
+          const url = options.url || 'unknown';
+          
+          // Increment counter and log BEFORE making the request
+          apiCallCounter++;
+          const logMessage = `[${timestamp}] [API Call #${apiCallCounter}] ${method} ${url}`;
+          console.log(chalk.gray(logMessage));
+          
+          // Write to log file immediately
+          try {
+            await fs.appendFile(LOG_FILE, `${logMessage}\n`);
+          } catch (error) {
+            console.error(chalk.red(`Failed to write to log file: ${error.message}`));
+          }
+          
+          // Make the actual request
+          const result = await request(options);
+          return result;
+        } catch (error) {
+          throw error;
         }
-        
-        return result;
-      } catch (error) {
-        // Update spinner even on error
-        const rateLimit = error.response?.headers?.['x-ratelimit-remaining'];
-        if (rateLimit) {
-          apiSpinner.text = `GitHub API Calls: ${apiCallCounter.toLocaleString()} (${rateLimit} remaining)`;
-        }
-        throw error;
       }
     }
-  }
-});
+  });
+
+  // Add pagination hook to track paginated requests
+  octokit.hook.after('request', async (response, options) => {
+    if (options.url && options.url.includes('page=')) {
+      const timestamp = format(new Date(), 'HH:mm:ss.SSS');
+      const logMessage = `[${timestamp}] [Pagination] GET ${options.url}`;
+      console.log(chalk.gray(logMessage));
+      await fs.appendFile(LOG_FILE, `${logMessage}\n`);
+    }
+  });
+
+  // Wrap paginate to ensure we track pagination calls
+  const originalPaginate = octokit.paginate;
+  octokit.paginate = async function (...args) {
+    const timestamp = format(new Date(), 'HH:mm:ss.SSS');
+    const url = args[0]?.url || args[0]?.method || 'unknown';
+    const logMessage = `[${timestamp}] [Starting Pagination] ${url}`;
+    console.log(chalk.gray(logMessage));
+    await fs.appendFile(LOG_FILE, `${logMessage}\n`);
+    return originalPaginate.apply(this, args);
+  };
+
+  return octokit;
+}
+
+// Initialize everything
+async function initialize() {
+  // First ensure directories exist
+  await ensureDirectories();
+  
+  // Then initialize Octokit with request tracking
+  octokit = initializeOctokit();
+}
+
 const GITHUB_ORG = process.env.GITHUB_ORG;
 
 // Constants
@@ -54,14 +101,6 @@ const LOG_DIR = path.join(process.cwd(), 'logs');
 const LOG_FILE = path.join(LOG_DIR, `sync-${format(new Date(), 'yyyy-MM-dd-HH-mm-ss')}.log`);
 const MAX_RETRIES = 2;
 const RETRY_DELAY = 5000; // 5 seconds
-
-// Track API calls
-let apiCallCounter = 0;
-const apiSpinner = ora({
-  text: 'GitHub API Calls: 0',
-  color: 'blue',
-  spinner: 'dots'
-}).start();
 
 // Ensure directories exist
 async function ensureDirectories() {
@@ -78,28 +117,29 @@ async function log(message, type = 'info') {
   const timestamp = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
   const logMessage = `[${timestamp}] ${message}\n`;
   
-  // Only write to console if it's not a spinner update
-  if (!message.startsWith('GitHub API Calls:')) {
-    // Clear spinner, print message, then restore spinner
-    apiSpinner.stop();
-    switch (type) {
-      case 'error':
-        console.error(chalk.red(message));
-        break;
-      case 'warning':
-        console.warn(chalk.yellow(message));
-        break;
-      case 'success':
-        console.log(chalk.green(message));
-        break;
-      default:
-        console.log(message);
-    }
-    apiSpinner.start();
+  // Write to console with appropriate color
+  switch (type) {
+    case 'error':
+      console.error(chalk.red(message));
+      break;
+    case 'warning':
+      console.warn(chalk.yellow(message));
+      break;
+    case 'success':
+      console.log(chalk.green(message));
+      break;
+    default:
+      console.log(message);
   }
   
-  // Write to file (without colors)
-  await fs.appendFile(LOG_FILE, logMessage);
+  // Track pending writes
+  pendingWrites++;
+  try {
+    // Write to file (without colors)
+    await fs.appendFile(LOG_FILE, logMessage);
+  } finally {
+    pendingWrites--;
+  }
 }
 
 // Ensure cache directory exists
@@ -173,16 +213,16 @@ async function fetchMonthlyCommits(repo, startDate, endDate) {
             ref: commit.sha
           });
           return {
-            sha: commit.sha,
-            message: commit.commit.message,
-            author: {
-              id: commit.author?.id,
-              login: commit.author?.login,
-              name: commit.commit.author.name,
-              avatar_url: commit.author?.avatar_url
-            },
-            date: commit.commit.author.date,
-            stats: {
+    sha: commit.sha,
+    message: commit.commit.message,
+    author: {
+      id: commit.author?.id,
+      login: commit.author?.login,
+      name: commit.commit.author.name,
+      avatar_url: commit.author?.avatar_url
+    },
+    date: commit.commit.author.date,
+    stats: {
               additions: fullCommit.stats?.additions || 0,
               deletions: fullCommit.stats?.deletions || 0
             }
@@ -248,20 +288,20 @@ async function fetchMonthlyPullRequests(repo, startDate, endDate) {
             pull_number: pr.number
           });
           return {
-            number: pr.number,
-            title: pr.title,
-            body: pr.body,
-            state: pr.state,
-            draft: pr.draft,
-            merged: pr.merged_at !== null,
-            head: { ref: pr.head.ref },
-            base: { ref: pr.base.ref },
-            user: {
-              id: pr.user.id,
-              login: pr.user.login,
-              name: pr.user.login,
-              avatar_url: pr.user.avatar_url
-            },
+      number: pr.number,
+      title: pr.title,
+      body: pr.body,
+      state: pr.state,
+      draft: pr.draft,
+      merged: pr.merged_at !== null,
+      head: { ref: pr.head.ref },
+      base: { ref: pr.base.ref },
+      user: {
+        id: pr.user.id,
+        login: pr.user.login,
+        name: pr.user.login,
+        avatar_url: pr.user.avatar_url
+      },
             created_at: pr.created_at || fullPR.created_at,  // Use PR creation date from either source
             merged_at: pr.merged_at || fullPR.merged_at,
             closed_at: pr.closed_at || fullPR.closed_at,
@@ -305,6 +345,7 @@ async function fetchMonthlyPullRequests(repo, startDate, endDate) {
 // Utility for retrying failed operations
 async function withRetry(operation, context = '', progressState = null) {
   let lastError;
+  let lastRateLimit = null;
   
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     try {
@@ -314,9 +355,15 @@ async function withRetry(operation, context = '', progressState = null) {
       
       // Only retry for rate limits or network errors
       if (error.status === 403 && error.message.includes('rate limit')) {
-        const rateLimit = await octokit.rateLimit.get();
-        const reset = new Date(rateLimit.data.rate.reset * 1000);
-        const waitTime = Math.ceil((reset - new Date()) / 1000);
+        // Get rate limit info from error response headers if available
+        const rateLimit = {
+          remaining: parseInt(error.response?.headers?.['x-ratelimit-remaining'] || '0'),
+          reset: parseInt(error.response?.headers?.['x-ratelimit-reset'] || '0')
+        };
+        lastRateLimit = rateLimit;
+        
+        const resetTime = new Date(rateLimit.reset * 1000);
+        const waitTime = Math.ceil((resetTime - new Date()) / 1000);
         
         // Save current progress before waiting
         if (progressState) {
@@ -324,8 +371,8 @@ async function withRetry(operation, context = '', progressState = null) {
             lastSuccessfulRun: {
               ...progressState.lastSuccessfulRun,
               githubApi: {
-                callsRemaining: rateLimit.data.rate.remaining,
-                resetTimestamp: reset.toISOString()
+                callsRemaining: rateLimit.remaining,
+                resetTimestamp: resetTime.toISOString()
               }
             }
           });
@@ -341,8 +388,8 @@ async function withRetry(operation, context = '', progressState = null) {
         if (attempt < MAX_RETRIES) {
           console.log(chalk.yellow(`Retry attempt ${attempt + 1}/${MAX_RETRIES} for ${context}...`));
           await setTimeout(RETRY_DELAY);
-          continue;
-        }
+        continue;
+      }
       }
       
       // For other errors, throw immediately
@@ -351,6 +398,15 @@ async function withRetry(operation, context = '', progressState = null) {
   }
   
   throw lastError;
+}
+
+// Create spinner with tracking
+function createSpinner(text) {
+  if (activeSpinner) {
+    activeSpinner.stop();
+  }
+  activeSpinner = ora(text).start();
+  return activeSpinner;
 }
 
 // Process a single month
@@ -388,7 +444,7 @@ async function processMonth(date, progressState, teamId) {
   };
 
   // Process each repository
-  const spinner = ora().start();
+  const spinner = createSpinner('Starting monthly processing...');
   const allCommits = [];
   const allPullRequests = [];
   
@@ -526,14 +582,14 @@ async function processMonth(date, progressState, teamId) {
           if (!monthStats.contributors[userId]) {
             monthStats.contributors[userId] = {
               login: pr.user.login,
-              totalCommits: 0,
+            totalCommits: 0,
               totalPrs: 0,
               mergedPrs: 0,
-              linesAdded: 0,
-              linesRemoved: 0,
+            linesAdded: 0,
+            linesRemoved: 0,
               activeRepositories: [],
               contributionScore: 0,
-              tabs: 0,
+            tabs: 0,
               premiumRequests: 0
             };
           }
@@ -1063,7 +1119,7 @@ program
 // Update main function
 async function main() {
   try {
-    await ensureDirectories();
+    await initialize();  // Initialize everything in the correct order
     
     const options = program.opts();
     const teamId = await getTeamId();
@@ -1073,7 +1129,6 @@ async function main() {
       const logsMsg = ` from the last ${numLogs} log file${numLogs === 1 ? '' : 's'}`;
       await log(`Running in retry mode - will attempt to reprocess failed items${logsMsg}`);
       await retryFailedItems(teamId, numLogs);
-      apiSpinner.stop();
       return;
     }
 
@@ -1098,7 +1153,7 @@ async function main() {
       const monthStr = format(currentMonth, 'MMMM yyyy');
       
       console.log(chalk.cyan(`\nProcessing ${monthStr}...`));
-      const spinner = ora('Starting monthly processing...').start();
+      const spinner = createSpinner('Starting monthly processing...');
 
       try {
         const { monthStats, commits, pullRequests } = await withRetry(
@@ -1201,34 +1256,46 @@ async function main() {
     }
 
     await log('Sync completed successfully!', 'success');
-    apiSpinner.succeed(`Completed with ${apiCallCounter.toLocaleString()} API calls`);
+    
+    // Clean exit
+    await prisma.$disconnect();
+    process.exit(0);
 
   } catch (error) {
-    apiSpinner.fail(`Error after ${apiCallCounter.toLocaleString()} API calls: ${error.message}`);
+    console.error(chalk.red(`Error: ${error.message}`));
     await log(`Error: ${error.message}`, 'error');
     if (error.status === 401) {
       await log('Authentication failed. Please check your GITHUB_KEY.', 'error');
     }
     process.exit(1);
   } finally {
-    // Ensure spinner is stopped and Prisma is disconnected
-    apiSpinner.stop();
     await prisma.$disconnect();
-    // Force exit after cleanup
     process.exit(0);
   }
 }
 
 // Update error handlers
 process.on('unhandledRejection', async (error) => {
-  apiSpinner.fail(`Unhandled promise rejection after ${apiCallCounter.toLocaleString()} API calls`);
+  // Count actual API calls from log file
+  const logContent = await fs.readFile(LOG_FILE, 'utf8');
+  const apiCallCount = logContent.split('\n')
+    .filter(line => line.includes('[API Call #'))
+    .length;
+  
+  console.error(chalk.red(`Unhandled promise rejection after ${apiCallCount.toLocaleString()} API calls`));
   console.error(chalk.red('Error details:'), error);
   await prisma.$disconnect();
   process.exit(1);
 });
 
 process.on('SIGINT', async () => {
-  apiSpinner.warn(`\nInterrupted after ${apiCallCounter.toLocaleString()} API calls`);
+  // Stop any active spinner
+  if (activeSpinner) {
+    activeSpinner.stop();
+    activeSpinner = null;
+  }
+
+  console.log(chalk.yellow('\nInterrupting...'));
   console.log(chalk.yellow('Cleaning up...'));
   await prisma.$disconnect();
   process.exit(0);
