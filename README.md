@@ -173,3 +173,19 @@ The application is designed to be deployed to Cloudflare Pages with Functions:
 - Waits for rate limit resets
 - Preserves progress on interruption
 - Detailed error messages for troubleshooting
+
+## Troubleshooting
+
+If you encounter dependency-related issues during installation or build:
+
+1. Delete the node_modules directory and package-lock.json:
+   ```bash
+   rm -rf node_modules package-lock.json
+   ```
+
+2. Perform a clean install:
+   ```bash
+   npm install
+   ```
+
+This clean install process can resolve many common issues related to dependencies and platform-specific packages.
