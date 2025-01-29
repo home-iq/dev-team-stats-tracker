@@ -625,3 +625,15 @@ export const handleWebhook = async (request: Request, env: Env) => {
     passThroughOnException: () => {}
   });
 };
+
+interface PagesContext {
+  request: Request;
+  env: Env;
+  params: { [key: string]: string };
+}
+
+// Export the onRequest handler for Cloudflare Pages Functions
+export const onRequest = async (context: PagesContext) => {
+  const { request, env } = context;
+  return handleWebhook(request, env);
+};
