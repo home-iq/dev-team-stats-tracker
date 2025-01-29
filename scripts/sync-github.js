@@ -16,106 +16,35 @@ import { calculateRepoStats, calculateContributorScores } from './utils/calculat
 dotenv.config();
 
 const prisma = new PrismaClient();
-let apiCallCounter = 0;
-let remainingCalls = null;
-let rateLimitReset = null;
-
-const apiSpinner = ora({
-  text: 'GitHub API Calls: 0',
-  color: 'blue',
-  spinner: 'dots'
-}).start();
-
-function updateApiCounter(response, endpoint) {
-  apiCallCounter++;
-  
-  // Update rate limit info from response headers
-  if (response.headers) {
-    remainingCalls = response.headers['x-ratelimit-remaining'];
-    rateLimitReset = response.headers['x-ratelimit-reset'];
-  }
-  
-  const method = response.request?.method || 'GET';
-  const url = response.url || endpoint || 'unknown';
-  const timestamp = format(new Date(), 'HH:mm:ss.SSS');
-  
-  // Log the API call details with more information
-  const rateLimitInfo = remainingCalls ? ` (${remainingCalls} remaining)` : '';
-  const logMessage = `[${timestamp}] [API Call #${apiCallCounter}] ${method} ${url}${rateLimitInfo}`;
-  
-  // Write to both console and log file to ensure we capture everything
-  console.log(chalk.gray(logMessage));
-  fs.appendFile(LOG_FILE, `${logMessage}\n`).catch(() => {});
-  
-  // Update spinner with latest count
-  apiSpinner.text = `GitHub API Calls: ${apiCallCounter.toLocaleString()}${rateLimitInfo}`;
-}
-
-// Create a request wrapper that counts all API calls
-function wrapRequest(request) {
-  return async function wrappedRequest(options) {
-    try {
-      const response = await request(options);
-      updateApiCounter(response, `${options.baseUrl || ''}${options.url}`);
-      return response;
-    } catch (error) {
-      if (error.response) {
-        updateApiCounter(error.response, `${options.baseUrl || ''}${options.url}`);
-      } else {
-        apiCallCounter++;
-        const timestamp = format(new Date(), 'HH:mm:ss.SSS');
-        console.log(chalk.red(`[${timestamp}] [API Error #${apiCallCounter}] Failed request to ${options.url}`));
-      }
-      throw error;
-    }
-  };
-}
-
-// Add pagination plugin with request tracking
-const paginateRest = require("@octokit/plugin-paginate-rest");
-
-// Create a wrapper for the paginate function that counts each page request
-async function paginateWithCount(octokit, route, options) {
-  const iterator = paginateRest.paginateRest.iterator(octokit, route, options);
-  const results = [];
-  
-  for await (const response of iterator) {
-    // Each iteration is a separate API call, so count it
-    updateApiCounter(response, typeof route === 'string' ? route : route.url);
-    results.push(...response.data);
-  }
-  
-  return results;
-}
-
-// Create Octokit instance with request tracking
 const octokit = new Octokit({
   auth: process.env.GITHUB_KEY,
   request: {
     hook: async (request, options) => {
-      const endpoint = `${options.baseUrl || ''}${options.url}`;
-      console.log(chalk.gray(`[API Request] ${options.method || 'GET'} ${endpoint}`));
-      
       try {
-        const response = await request(options);
-        updateApiCounter(response, endpoint);
-        return response;
+        // Increment counter before the request
+        apiCallCounter++;
+        apiSpinner.text = `GitHub API Calls: ${apiCallCounter.toLocaleString()}`;
+        
+        const result = await request(options);
+        
+        // Update remaining calls after the request
+        const rateLimit = result.headers?.['x-ratelimit-remaining'];
+        if (rateLimit) {
+          apiSpinner.text = `GitHub API Calls: ${apiCallCounter.toLocaleString()} (${rateLimit} remaining)`;
+        }
+        
+        return result;
       } catch (error) {
-        if (error.response) {
-          updateApiCounter(error.response, endpoint);
-        } else {
-          apiCallCounter++;
-          console.log(chalk.red(`[API Error] ${error.message} for ${endpoint}`));
+        // Update spinner even on error
+        const rateLimit = error.response?.headers?.['x-ratelimit-remaining'];
+        if (rateLimit) {
+          apiSpinner.text = `GitHub API Calls: ${apiCallCounter.toLocaleString()} (${rateLimit} remaining)`;
         }
         throw error;
       }
     }
   }
 });
-
-// Replace the standard paginate with our counting version
-octokit.paginate = paginateWithCount.bind(null, octokit);
-
 const GITHUB_ORG = process.env.GITHUB_ORG;
 
 // Constants
@@ -125,6 +54,14 @@ const LOG_DIR = path.join(process.cwd(), 'logs');
 const LOG_FILE = path.join(LOG_DIR, `sync-${format(new Date(), 'yyyy-MM-dd-HH-mm-ss')}.log`);
 const MAX_RETRIES = 2;
 const RETRY_DELAY = 5000; // 5 seconds
+
+// Track API calls
+let apiCallCounter = 0;
+const apiSpinner = ora({
+  text: 'GitHub API Calls: 0',
+  color: 'blue',
+  spinner: 'dots'
+}).start();
 
 // Ensure directories exist
 async function ensureDirectories() {
@@ -177,12 +114,6 @@ async function ensureCacheDir() {
 // Save progress state
 async function saveProgressState(state) {
   await ensureCacheDir();
-  if (state.lastSuccessfulRun && !state.lastSuccessfulRun.githubApi && remainingCalls) {
-    state.lastSuccessfulRun.githubApi = {
-      callsRemaining: remainingCalls,
-      resetTimestamp: new Date(rateLimitReset * 1000).toISOString()
-    };
-  }
   await fs.writeFile(STATE_FILE, JSON.stringify(state, null, 2));
 }
 
@@ -383,14 +314,8 @@ async function withRetry(operation, context = '', progressState = null) {
       
       // Only retry for rate limits or network errors
       if (error.status === 403 && error.message.includes('rate limit')) {
-        // Only make an explicit rate limit check if we don't have the info from headers
-        if (!rateLimitReset) {
-          const { data: rateLimit } = await octokit.rateLimit.get();
-          rateLimitReset = rateLimit.rate.reset;
-          remainingCalls = rateLimit.rate.remaining;
-        }
-        
-        const reset = new Date(rateLimitReset * 1000);
+        const rateLimit = await octokit.rateLimit.get();
+        const reset = new Date(rateLimit.data.rate.reset * 1000);
         const waitTime = Math.ceil((reset - new Date()) / 1000);
         
         // Save current progress before waiting
@@ -399,7 +324,7 @@ async function withRetry(operation, context = '', progressState = null) {
             lastSuccessfulRun: {
               ...progressState.lastSuccessfulRun,
               githubApi: {
-                callsRemaining: remainingCalls,
+                callsRemaining: rateLimit.data.rate.remaining,
                 resetTimestamp: reset.toISOString()
               }
             }
@@ -1191,7 +1116,7 @@ async function main() {
             existingPRs: 0,
             newContributors: 0
           },
-          apiCallsRemaining: remainingCalls
+          apiCallsRemaining: (await octokit.rateLimit.get()).data.rate.remaining
         };
         
         // Add stats for each repository
@@ -1244,18 +1169,7 @@ async function main() {
     }
 
     await log('Sync completed successfully!', 'success');
-    const finalMessage = `Completed with ${apiCallCounter.toLocaleString()} total API calls`;
-    await log(finalMessage, 'success');
-    apiSpinner.succeed(finalMessage);
-    
-    // Log detailed summary
-    await log('\nAPI Call Summary:', 'info');
-    await log(`Total API calls made: ${apiCallCounter}`, 'info');
-    await log(`Remaining rate limit: ${remainingCalls || 'unknown'}`, 'info');
-    if (rateLimitReset) {
-      const resetTime = new Date(rateLimitReset * 1000);
-      await log(`Rate limit resets at: ${format(resetTime, 'yyyy-MM-dd HH:mm:ss')}`, 'info');
-    }
+    apiSpinner.succeed(`Completed with ${apiCallCounter.toLocaleString()} API calls`);
 
   } catch (error) {
     apiSpinner.fail(`Error after ${apiCallCounter.toLocaleString()} API calls: ${error.message}`);
