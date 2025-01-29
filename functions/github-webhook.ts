@@ -4,22 +4,22 @@ import { calculateContributorScores as _calculateContributorScores } from '../sc
 import { Octokit } from '@octokit/rest';
 
 const prisma = new PrismaClient();
-const octokit = new Octokit({
-  auth: process.env.GITHUB_KEY
-});
 
-// Get GITHUB_ORG from environment
-const GITHUB_ORG = process.env.GITHUB_ORG;
+export interface Env {
+  GITHUB_WEBHOOK_SECRET: string;
+  GITHUB_KEY: string;
+  GITHUB_ORG: string;
+}
 
 interface GitHubCommit {
   id: string;
   sha: string;
   message: string;
   repository: string;
-  author?: {
-    id?: number;
-    username?: string;
-    name?: string;
+  author: {
+    id: number;
+    username: string;
+    name: string;
     avatar_url?: string;
   };
   timestamp: string;
@@ -332,7 +332,7 @@ async function updateMonthStats(teamId: string, date: Date, newCommits: GitHubCo
 }
 
 // Create commit record
-async function createCommit(commit: GitHubCommit, repoId: string, authorId: string) {
+async function createCommit(commit: GitHubCommit, repoId: string, authorId: string, env: Env) {
   return prisma.commit.create({
     data: {
       githubCommitId: commit.id,
@@ -340,7 +340,7 @@ async function createCommit(commit: GitHubCommit, repoId: string, authorId: stri
       linesAdded: commit.stats?.additions || 0,
       linesDeleted: commit.stats?.deletions || 0,
       committedAt: new Date(commit.timestamp),
-      url: GITHUB_ORG ? `https://github.com/${GITHUB_ORG}/${commit.repository}/commit/${commit.sha}` : null,
+      url: env.GITHUB_ORG ? `https://github.com/${env.GITHUB_ORG}/${commit.repository}/commit/${commit.sha}` : null,
       repoId: repoId,
       authorId: authorId
     }
@@ -348,7 +348,7 @@ async function createCommit(commit: GitHubCommit, repoId: string, authorId: stri
 }
 
 // Create or update pull request record
-async function createOrUpdatePullRequest(pr: GitHubPullRequest, repoId: string, authorId: string) {
+async function createOrUpdatePullRequest(pr: GitHubPullRequest, repoId: string, authorId: string, env: Env) {
   return prisma.pullRequest.upsert({
     where: { githubPrId: pr.id },
     create: {
@@ -363,7 +363,7 @@ async function createOrUpdatePullRequest(pr: GitHubPullRequest, repoId: string, 
       openedAt: new Date(pr.created_at),
       mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
       closedAt: pr.closed_at ? new Date(pr.closed_at) : null,
-      url: GITHUB_ORG ? `https://github.com/${GITHUB_ORG}/${pr.repository}/pull/${pr.number}` : null,
+      url: env.GITHUB_ORG ? `https://github.com/${env.GITHUB_ORG}/${pr.repository}/pull/${pr.number}` : null,
       linesAdded: pr.additions || 0,
       linesDeleted: pr.deletions || 0,
       commits: pr.commits || 0,
@@ -379,7 +379,7 @@ async function createOrUpdatePullRequest(pr: GitHubPullRequest, repoId: string, 
       openedAt: new Date(pr.created_at),
       mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
       closedAt: pr.closed_at ? new Date(pr.closed_at) : null,
-      url: GITHUB_ORG ? `https://github.com/${GITHUB_ORG}/${pr.repository}/pull/${pr.number}` : null,
+      url: env.GITHUB_ORG ? `https://github.com/${env.GITHUB_ORG}/${pr.repository}/pull/${pr.number}` : null,
       linesAdded: pr.additions || 0,
       linesDeleted: pr.deletions || 0,
       commits: pr.commits || 0,
@@ -387,10 +387,6 @@ async function createOrUpdatePullRequest(pr: GitHubPullRequest, repoId: string, 
       reviews: pr.review_comments || 0
     }
   });
-}
-
-export interface Env {
-  GITHUB_WEBHOOK_SECRET: string;
 }
 
 interface ExecutionContext {
@@ -426,257 +422,203 @@ interface PrismaError {
   [key: string]: unknown;
 }
 
-// Fetch full commit data including stats
-async function fetchCommitDetails(owner: string, repo: string, sha: string) {
-  try {
-    const response = await octokit.repos.getCommit({
-      owner,
-      repo,
-      ref: sha
-    });
-    
-    const commitData = response.data;
-    return {
-      id: sha, // Required by GitHubCommit type
-      sha,
-      message: commitData.commit?.message || '',
-      author: {
-        id: commitData.author?.id,
-        username: commitData.author?.login || '',
-        name: commitData.commit?.author?.name || commitData.author?.login || '',
-        avatar_url: commitData.author?.avatar_url
-      },
-      date: commitData.commit?.author?.date || new Date().toISOString(),
-      stats: {
-        additions: commitData.stats?.additions || 0,
-        deletions: commitData.stats?.deletions || 0
-      }
-    };
-  } catch (error) {
-    console.error(`Failed to fetch commit details for ${sha}:`, error);
-    return null;
-  }
-}
-
-// Fetch full PR data including stats
-async function fetchPullRequestDetails(owner: string, repo: string, number: number) {
-  try {
-    const response = await octokit.pulls.get({
-      owner,
-      repo,
-      pull_number: number
-    });
-    
-    const prData = response.data;
-    return {
-      id: prData.id,
-      number: prData.number,
-      title: prData.title,
-      state: prData.state as PrStatus,
-      draft: prData.draft || false,
-      merged: prData.merged,
-      created_at: prData.created_at,
-      merged_at: prData.merged_at,
-      closed_at: prData.closed_at,
-      head: { ref: prData.head.ref },
-      base: { ref: prData.base.ref },
-      repository: repo,
-      user: {
-        id: prData.user?.id || 0,
-        login: prData.user?.login || '',
-        name: prData.user?.name || prData.user?.login || '',
-        avatar_url: prData.user?.avatar_url || ''
-      },
-      additions: prData.additions || 0,
-      deletions: prData.deletions || 0,
-      commits: prData.commits || 0,
-      comments: prData.comments || 0,
-      review_comments: prData.review_comments || 0
-    } as GitHubPullRequest;
-  } catch (error) {
-    console.error(`Failed to fetch PR details for #${number}:`, error);
-    return null;
-  }
+// Helper function to check if an error is a Prisma error
+function isPrismaError(err: unknown): err is PrismaError {
+  return typeof err === 'object' && err !== null && 'code' in err;
 }
 
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
-    let deliveryId: string | null = null;
-    
+    const octokit = new Octokit({
+      auth: env.GITHUB_KEY
+    });
+
+    // Helper functions that need access to octokit
+    async function fetchCommitDetails(owner: string, repo: string, sha: string) {
+      try {
+        const response = await octokit.repos.getCommit({
+          owner,
+          repo,
+          ref: sha
+        });
+        
+        const commitData = response.data;
+        const username = commitData.author?.login || commitData.commit?.author?.name || 'unknown';
+        const name = commitData.commit?.author?.name || username;
+        
+        return {
+          id: sha,
+          sha,
+          message: commitData.commit?.message || '',
+          repository: repo,
+          author: {
+            id: commitData.author?.id || 0,
+            username,
+            name,
+            avatar_url: commitData.author?.avatar_url
+          },
+          timestamp: commitData.commit?.author?.date || new Date().toISOString(),
+          stats: {
+            additions: commitData.stats?.additions || 0,
+            deletions: commitData.stats?.deletions || 0
+          }
+        } as GitHubCommit;
+      } catch (error) {
+        console.error(`Failed to fetch commit details for ${sha}:`, error);
+        return null;
+      }
+    }
+
+    async function fetchPullRequestDetails(owner: string, repo: string, number: number) {
+      try {
+        const response = await octokit.pulls.get({
+          owner,
+          repo,
+          pull_number: number
+        });
+        
+        const prData = response.data;
+        return {
+          id: prData.id,
+          number: prData.number,
+          title: prData.title,
+          state: prData.state as PrStatus,
+          draft: prData.draft || false,
+          merged: prData.merged,
+          created_at: prData.created_at,
+          merged_at: prData.merged_at,
+          closed_at: prData.closed_at,
+          head: { ref: prData.head.ref },
+          base: { ref: prData.base.ref },
+          repository: repo,
+          user: {
+            id: prData.user?.id || 0,
+            login: prData.user?.login || '',
+            name: prData.user?.name || prData.user?.login || '',
+            avatar_url: prData.user?.avatar_url || ''
+          },
+          additions: prData.additions || 0,
+          deletions: prData.deletions || 0,
+          commits: prData.commits || 0,
+          comments: prData.comments || 0,
+          review_comments: prData.review_comments || 0
+        } as GitHubPullRequest;
+      } catch (error) {
+        console.error(`Failed to fetch PR details for #${number}:`, error);
+        return null;
+      }
+    }
+
+    // Main webhook processing logic
     try {
+      if (request.method !== 'POST') {
+        return new Response('Method not allowed', { status: 405 });
+      }
+
       const payload = await request.text();
-      const signature = request.headers.get('x-hub-signature-256');
-      const event = request.headers.get('x-github-event');
-      deliveryId = request.headers.get('x-github-delivery');
-      
-      if (!env.GITHUB_WEBHOOK_SECRET || !signature || !verifySignature(payload, signature, env.GITHUB_WEBHOOK_SECRET)) {
-        console.error('Invalid webhook signature');
+      const signature = request.headers.get('x-hub-signature-256') || '';
+
+      if (!verifySignature(payload, signature, env.GITHUB_WEBHOOK_SECRET)) {
         return new Response('Invalid signature', { status: 401 });
       }
 
+      const event = request.headers.get('x-github-event');
       const data = JSON.parse(payload);
-      const owner = data.repository.owner.login;
-      const repoName = data.repository.name;
-      
-      // Get or create team
-      const team = await getOrCreateTeam(
-        data.repository.owner.id,
-        owner
-      );
-      const teamId = team.id;
 
-      // Get or create repository
-      const repo = await getOrCreateRepo(
-        teamId,
-        repoName,
-        data.repository.id.toString(),
-        data.repository.html_url
-      );
-      
-      // Variables used across switch cases
-      const commits: GitHubCommit[] = [];
-      let action = '';
-      const pr: GitHubPullRequest | null = null;
-      const contributor: Awaited<ReturnType<typeof getOrCreateContributor>> | null = null;
-      let eventType: EventType;
-      const prRecord: Awaited<ReturnType<typeof prisma.pullRequest.upsert>> | null = null;
-      
-      // Process webhook event
+      // Process the webhook event
       switch (event) {
         case 'push': {
-          action = 'push';
-          const commits: GitHubCommit[] = [];
+          // Process push event
+          const repoName = data.repository.name;
+          const repoId = data.repository.id.toString();
           
+          // Get or create team
+          const team = await getOrCreateTeam(data.repository.owner.id, env.GITHUB_ORG);
+          
+          // Get or create repo
+          const repo = await getOrCreateRepo(
+            team.id,
+            repoName,
+            repoId,
+            data.repository.html_url
+          );
+
+          // Process each commit
           for (const commit of data.commits) {
-            const fullCommit = await fetchCommitDetails(owner, repoName, commit.id);
-            if (!fullCommit || !fullCommit.author?.id) continue;
+            const commitDetails = await fetchCommitDetails(env.GITHUB_ORG, repoName, commit.id);
+            if (!commitDetails?.author?.id) continue;
 
-            commits.push({
-              ...fullCommit,
-              repository: repoName,
-              timestamp: commit.timestamp
-            });
-
-            // Create commit record
             const contributor = await getOrCreateContributor(
-              teamId,
-              fullCommit.author.id.toString(),
-              fullCommit.author.username || '',
-              fullCommit.author.name || fullCommit.author.username || '',
-              fullCommit.author.avatar_url
+              team.id,
+              commitDetails.author.id.toString(),
+              commitDetails.author.username,
+              commitDetails.author.name || commitDetails.author.username || 'Unknown User'
             );
-            if (!contributor) continue;
 
-            await prisma.commit.upsert({
-              where: { githubCommitId: fullCommit.sha },
-              create: {
-                githubCommitId: fullCommit.sha,
-                message: fullCommit.message,
-                linesAdded: fullCommit.stats.additions,
-                linesDeleted: fullCommit.stats.deletions,
-                committedAt: new Date(fullCommit.date),
-                url: `https://github.com/${owner}/${repoName}/commit/${fullCommit.sha}`,
-                repoId: repo.id,
-                authorId: contributor.id
-              },
-              update: {
-                message: fullCommit.message,
-                linesAdded: fullCommit.stats.additions,
-                linesDeleted: fullCommit.stats.deletions,
-                committedAt: new Date(fullCommit.date),
-                url: `https://github.com/${owner}/${repoName}/commit/${fullCommit.sha}`,
-                repoId: repo.id,
-                authorId: contributor.id
-              }
-            });
-          }
-
-          // Update monthly stats with new commits
-          if (commits.length > 0) {
-            await updateMonthStats(teamId, new Date(commits[0].timestamp), commits);
+            await createCommit(commitDetails, repo.id, contributor.id, env);
+            
+            // Update monthly stats
+            await updateMonthStats(team.id, new Date(commitDetails.timestamp), [commitDetails]);
           }
           break;
         }
-          
+
         case 'pull_request': {
-          action = data.action;
-          const fullPR = await fetchPullRequestDetails(owner, repoName, data.pull_request.number);
-          if (!fullPR || !fullPR.user?.id) break;
+          // Process pull request event
+          const repoName = data.repository.name;
+          const repoId = data.repository.id.toString();
+          
+          // Get or create team
+          const team = await getOrCreateTeam(data.repository.owner.id, env.GITHUB_ORG);
+          
+          // Get or create repo
+          const repo = await getOrCreateRepo(
+            team.id,
+            repoName,
+            repoId,
+            data.repository.html_url
+          );
+
+          const prDetails = await fetchPullRequestDetails(env.GITHUB_ORG, repoName, data.pull_request.number);
+          if (!prDetails?.user?.id) break;
 
           const contributor = await getOrCreateContributor(
-            teamId,
-            fullPR.user.id.toString(),
-            fullPR.user.login,
-            fullPR.user.name || fullPR.user.login,
-            fullPR.user.avatar_url
+            team.id,
+            prDetails.user.id.toString(),
+            prDetails.user.login,
+            prDetails.user.name || prDetails.user.login,
+            prDetails.user.avatar_url
           );
-          if (!contributor) break;
 
-          await prisma.pullRequest.upsert({
-            where: { githubPrId: fullPR.number },
-            create: {
-              githubPrId: fullPR.number,
-              title: fullPR.title,
-              description: data.pull_request.body || '',
-              status: fullPR.merged ? 'MERGED' : fullPR.state === 'closed' ? 'CLOSED' : 'OPEN',
-              isDraft: fullPR.draft,
-              isMerged: fullPR.merged,
-              sourceBranch: fullPR.head.ref,
-              targetBranch: fullPR.base.ref,
-              openedAt: new Date(fullPR.created_at),
-              mergedAt: fullPR.merged_at ? new Date(fullPR.merged_at) : null,
-              closedAt: fullPR.closed_at ? new Date(fullPR.closed_at) : null,
-              url: `https://github.com/${owner}/${repoName}/pull/${fullPR.number}`,
-              linesAdded: fullPR.additions || 0,
-              linesDeleted: fullPR.deletions || 0,
-              commits: fullPR.commits || 0,
-              comments: (fullPR.comments || 0) + (fullPR.review_comments || 0),
-              reviews: fullPR.review_comments || 0,
-              authorId: contributor.id,
-              repoId: repo.id
-            },
-            update: {
-              status: fullPR.merged ? 'MERGED' : fullPR.state === 'closed' ? 'CLOSED' : 'OPEN',
-              isDraft: fullPR.draft,
-              isMerged: fullPR.merged,
-              openedAt: new Date(fullPR.created_at),
-              mergedAt: fullPR.merged_at ? new Date(fullPR.merged_at) : null,
-              closedAt: fullPR.closed_at ? new Date(fullPR.closed_at) : null,
-              url: `https://github.com/${owner}/${repoName}/pull/${fullPR.number}`,
-              linesAdded: fullPR.additions || 0,
-              linesDeleted: fullPR.deletions || 0,
-              commits: fullPR.commits || 0,
-              comments: (fullPR.comments || 0) + (fullPR.review_comments || 0),
-              reviews: fullPR.review_comments || 0
-            }
-          });
-
-          // Update monthly stats with new PR
-          await updateMonthStats(teamId, new Date(), [], fullPR);
+          await createOrUpdatePullRequest(prDetails, repo.id, contributor.id, env);
+          
+          // Update monthly stats
+          await updateMonthStats(team.id, new Date(prDetails.created_at), [], prDetails);
           break;
         }
+
+        default:
+          return new Response(`Event type ${event} not supported`, { status: 400 });
       }
 
-      return new Response('Webhook processed', { status: 200 });
-    } catch (error: unknown) {
-      const isPrismaError = (err: unknown): err is PrismaError => 
-        typeof err === 'object' && err !== null && 'code' in err;
+      return new Response('OK');
 
-      if (isPrismaError(error) && error.code === 'P2002') {
-        // Not an error - just a duplicate event
-        console.log('Skipping duplicate event:', deliveryId);
-      } else {
-        // Log actual errors but still return 200
-        console.error('Error processing webhook:', error);
+    } catch (err) {
+      console.error('Error processing webhook:', err);
+      
+      // Handle Prisma errors specially
+      if (isPrismaError(err)) {
+        return new Response(`Database error: ${err.code}`, { status: 500 });
       }
-      return new Response('Webhook received', { status: 200 });
+      
+      return new Response('Internal server error', { status: 500 });
     }
   }
 };
 
 export default worker;
 
-// Keep the handleWebhook export for Vite development server
+// Export handleWebhook for Vite development
 export const handleWebhook = async (request: Request, env: Env) => {
   return worker.fetch(request, env, {
     waitUntil: () => {},
