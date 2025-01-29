@@ -32,6 +32,7 @@ node scripts/sync-github.js --start-date YYYY-MM --months N [--force]
 - `--start-date` (required): The month to start syncing from (format: YYYY-MM)
 - `--months` (required): Number of months to process
 - `--force` (optional): Ignore saved progress state and start fresh
+- `--retry [N]` (optional): Retry failed items from logs. N specifies the number of recent log files to check (defaults to 1 if no number provided)
 
 ### Examples
 
@@ -44,6 +45,12 @@ npm run sync -- --start-date 2023-12 --months 1
 
 # Force sync ignoring previous progress
 npm run sync -- --start-date 2024-01 --months 1 --force
+
+# Retry failed items from the most recent log file
+npm run sync -- --retry
+
+# Retry failed items from the last 3 log files
+npm run sync -- --retry 3
 ```
 
 ## Features
@@ -84,6 +91,13 @@ npm run sync -- --start-date 2024-01 --months 1 --force
   - Preserves API rate limit status
   - Supports force sync when needed
 
+- Robust Error Recovery:
+  - Tracks failed commits and pull requests in logs
+  - Supports retrying failed items from recent logs
+  - Shows last attempt timestamps for failed items
+  - Automatically removes successfully retried items
+  - Focuses on recent failures with configurable log scope
+
 ## Progress Tracking
 
 The script maintains a progress state file at `.cache/github-sync-state.json` which tracks:
@@ -115,4 +129,12 @@ All output is logged to timestamped files in the `logs` directory for future ref
 - Automatically retries failed operations (max 2 retries)
 - Waits for rate limit resets
 - Preserves progress on interruption
-- Detailed error messages for troubleshooting 
+- Detailed error messages for troubleshooting
+- Failed items logged in a parseable format for retry
+- Supports selective retrying of recent failures
+
+## Additional Notes
+
+- The `--retry` option can be used to retry failed items from recent logs. If no number is provided, it defaults to 1 (most recent log file).
+- The script will automatically remove successfully retried items from the log files.
+- The log scope for retrying can be configured by providing a number with the `--retry` option. 

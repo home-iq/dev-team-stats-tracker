@@ -1,8 +1,12 @@
 import { PrismaClient, EventType, PrStatus } from '@prisma/client';
 import crypto from 'crypto';
-import { calculateContributorScores } from '../scripts/utils/calculate-scores.js';
+import { calculateContributorScores as _calculateContributorScores } from '../scripts/utils/calculate-scores.js';
+import { Octokit } from '@octokit/rest';
 
 const prisma = new PrismaClient();
+const octokit = new Octokit({
+  auth: process.env.GITHUB_KEY
+});
 
 // Get GITHUB_ORG from environment
 const GITHUB_ORG = process.env.GITHUB_ORG;
@@ -33,6 +37,7 @@ interface GitHubPullRequest {
   state: string;
   draft: boolean;
   merged: boolean;
+  created_at: string;
   merged_at: string | null;
   closed_at: string | null;
   head: { ref: string };
@@ -78,23 +83,18 @@ async function getOrCreateRepo(teamId: string, repoName: string, githubRepoId: s
 
 // Get or create a team
 async function getOrCreateTeam(githubOrgId: number, orgName: string) {
-  // Try to find existing team
-  let team = await prisma.team.findUnique({
-    where: { githubOrgId }
+  return prisma.team.upsert({
+    where: { githubOrgId },
+    create: { 
+      githubOrgId: BigInt(githubOrgId),
+      githubOrgName: orgName,
+      name: orgName 
+    },
+    update: {
+      githubOrgName: orgName,
+      name: orgName
+    }
   });
-  
-  // Create if doesn't exist
-  if (!team) {
-    team = await prisma.team.create({
-      data: { 
-        githubOrgId: BigInt(githubOrgId),
-        githubOrgName: orgName,
-        name: orgName 
-      }
-    });
-  }
-  
-  return team;
 }
 
 // Helper to convert GitHub PR state to PrStatus
@@ -103,63 +103,80 @@ function toPrStatus(state: string, merged: boolean): PrStatus {
   return state.toUpperCase() === 'OPEN' ? PrStatus.OPEN : PrStatus.CLOSED;
 }
 
-// Update monthly stats for a given month
-async function updateMonthStats(teamId: string, date: Date, newCommits: GitHubCommit[] = [], newPullRequest: GitHubPullRequest | null = null) {
-  const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
-  
-  // Get existing month record
-  const monthRecord = await prisma.month.findUnique({
-    where: {
-      teamId_date: {
-        teamId,
-        date: startOfMonth
-      }
-    }
-  });
-
-  // Get existing stats or initialize new ones
-  const existingStats = monthRecord?.stats as {
-    overall: {
-      totalCommits: number;
-      totalPrs: number;
-      mergedPrs: number;
-      linesAdded: number;
-      linesRemoved: number;
-      activeContributors: number;
-      averageContributionScore: number;
-    };
-    repositories: Record<string, {  // key is githubRepoId
-      name: string;  // store name for reference
+// Define the stats type
+type JsonMonthStats = {
+  overall: {
+    totalCommits: number;
+    totalPrs: number;
+    mergedPrs: number;
+    linesAdded: number;
+    linesRemoved: number;
+    activeContributors: number;
+    averageContributionScore: number;
+  };
+  repositories: {
+    [key: string]: {
+      name: string;
       commits: number;
       totalPrs: number;
       mergedPrs: number;
       linesAdded: number;
       linesRemoved: number;
       activeContributors: number;
-    }>;
-    contributors: Record<string, {  // key is githubUserId
-      login: string;  // store login for reference
+    };
+  };
+  contributors: {
+    [key: string]: {
+      login: string;
       totalCommits: number;
       totalPrs: number;
       mergedPrs: number;
       linesAdded: number;
       linesRemoved: number;
-      activeRepositories: string[];  // array of githubRepoIds
+      activeRepositories: string[];
       contributionScore: number;
-    }>;
-  } || {
-    overall: {
-      totalCommits: 0,
-      totalPrs: 0,
-      mergedPrs: 0,
-      linesAdded: 0,
-      linesRemoved: 0,
-      activeContributors: 0,
-      averageContributionScore: 0
-    },
-    repositories: {},
-    contributors: {}
+      tabs: number;
+      premiumRequests: number;
+    };
   };
+};
+
+// Update monthly stats for a given month
+async function updateMonthStats(teamId: string, date: Date, newCommits: GitHubCommit[] = [], newPullRequest: GitHubPullRequest | null = null) {
+  const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
+  
+  // Get or create month record with stats
+  const monthRecord = await prisma.month.upsert({
+    where: {
+      teamId_date: {
+        teamId,
+        date: startOfMonth
+      }
+    },
+    create: {
+      teamId,
+      date: startOfMonth,
+      stats: {
+        overall: {
+          totalCommits: 0,
+          totalPrs: 0,
+          mergedPrs: 0,
+          linesAdded: 0,
+          linesRemoved: 0,
+          activeContributors: 0,
+          averageContributionScore: 0
+        },
+        repositories: {},
+        contributors: {}
+      } as JsonMonthStats
+    },
+    update: {},
+    select: {
+      stats: true
+    }
+  });
+
+  const existingStats = monthRecord.stats as JsonMonthStats;
 
   // Process new commits
   for (const commit of newCommits) {
@@ -194,7 +211,9 @@ async function updateMonthStats(teamId: string, date: Date, newCommits: GitHubCo
         linesAdded: 0,
         linesRemoved: 0,
         activeRepositories: [],
-        contributionScore: 0
+        contributionScore: 0,
+        tabs: 0,
+        premiumRequests: 0
       };
     }
     const contributorStats = existingStats.contributors[userId];
@@ -246,7 +265,9 @@ async function updateMonthStats(teamId: string, date: Date, newCommits: GitHubCo
         linesAdded: 0,
         linesRemoved: 0,
         activeRepositories: [],
-        contributionScore: 0
+        contributionScore: 0,
+        tabs: 0,
+        premiumRequests: 0
       };
     }
     const contributorStats = existingStats.contributors[userId];
@@ -275,7 +296,9 @@ async function updateMonthStats(teamId: string, date: Date, newCommits: GitHubCo
   // Calculate contribution scores
   const allContributorStats = Object.entries(existingStats.contributors).map(([userId, stats]) => ({
     githubUserId: userId,
-    ...stats  // stats already includes login
+    ...stats,  // stats already includes login
+    tabs: stats.tabs || 0,
+    premiumRequests: stats.premiumRequests || 0
   }));
   const scores = calculateContributorScores(allContributorStats);
   
@@ -337,6 +360,7 @@ async function createOrUpdatePullRequest(pr: GitHubPullRequest, repoId: string, 
       isMerged: pr.merged,
       sourceBranch: pr.head.ref,
       targetBranch: pr.base.ref,
+      openedAt: new Date(pr.created_at),
       mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
       closedAt: pr.closed_at ? new Date(pr.closed_at) : null,
       url: GITHUB_ORG ? `https://github.com/${GITHUB_ORG}/${pr.repository}/pull/${pr.number}` : null,
@@ -352,6 +376,7 @@ async function createOrUpdatePullRequest(pr: GitHubPullRequest, repoId: string, 
       status: toPrStatus(pr.state, pr.merged),
       isDraft: pr.draft,
       isMerged: pr.merged,
+      openedAt: new Date(pr.created_at),
       mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
       closedAt: pr.closed_at ? new Date(pr.closed_at) : null,
       url: GITHUB_ORG ? `https://github.com/${GITHUB_ORG}/${pr.repository}/pull/${pr.number}` : null,
@@ -373,173 +398,277 @@ interface ExecutionContext {
   passThroughOnException(): void;
 }
 
+// Instead of augmenting the module, create an interface for the expected function
+interface ContributorStats {
+  githubUserId: string;
+  login: string;
+  totalCommits: number;
+  totalPrs: number;
+  mergedPrs: number;
+  linesAdded: number;
+  linesRemoved: number;
+  activeRepositories: string[];
+  contributionScore: number;
+  tabs: number;
+  premiumRequests: number;
+}
+
+interface ContributorScores {
+  [key: string]: { score: number };
+}
+
+// Import the function and type it
+const calculateContributorScores = _calculateContributorScores as (contributors: ContributorStats[]) => ContributorScores;
+
+// Add interface for Prisma error
+interface PrismaError {
+  code: string;
+  [key: string]: unknown;
+}
+
+// Fetch full commit data including stats
+async function fetchCommitDetails(owner: string, repo: string, sha: string) {
+  try {
+    const response = await octokit.repos.getCommit({
+      owner,
+      repo,
+      ref: sha
+    });
+    
+    const commitData = response.data;
+    return {
+      id: sha, // Required by GitHubCommit type
+      sha,
+      message: commitData.commit?.message || '',
+      author: {
+        id: commitData.author?.id,
+        username: commitData.author?.login || '',
+        name: commitData.commit?.author?.name || commitData.author?.login || '',
+        avatar_url: commitData.author?.avatar_url
+      },
+      date: commitData.commit?.author?.date || new Date().toISOString(),
+      stats: {
+        additions: commitData.stats?.additions || 0,
+        deletions: commitData.stats?.deletions || 0
+      }
+    };
+  } catch (error) {
+    console.error(`Failed to fetch commit details for ${sha}:`, error);
+    return null;
+  }
+}
+
+// Fetch full PR data including stats
+async function fetchPullRequestDetails(owner: string, repo: string, number: number) {
+  try {
+    const response = await octokit.pulls.get({
+      owner,
+      repo,
+      pull_number: number
+    });
+    
+    const prData = response.data;
+    return {
+      id: prData.id,
+      number: prData.number,
+      title: prData.title,
+      state: prData.state as PrStatus,
+      draft: prData.draft || false,
+      merged: prData.merged,
+      created_at: prData.created_at,
+      merged_at: prData.merged_at,
+      closed_at: prData.closed_at,
+      head: { ref: prData.head.ref },
+      base: { ref: prData.base.ref },
+      repository: repo,
+      user: {
+        id: prData.user?.id || 0,
+        login: prData.user?.login || '',
+        name: prData.user?.name || prData.user?.login || '',
+        avatar_url: prData.user?.avatar_url || ''
+      },
+      additions: prData.additions || 0,
+      deletions: prData.deletions || 0,
+      commits: prData.commits || 0,
+      comments: prData.comments || 0,
+      review_comments: prData.review_comments || 0
+    } as GitHubPullRequest;
+  } catch (error) {
+    console.error(`Failed to fetch PR details for #${number}:`, error);
+    return null;
+  }
+}
+
 const worker = {
-  async fetch(request: Request, env: Env, ctx: ExecutionContext) {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
+    let deliveryId: string | null = null;
+    
     try {
       const payload = await request.text();
       const signature = request.headers.get('x-hub-signature-256');
       const event = request.headers.get('x-github-event');
-      const deliveryId = request.headers.get('x-github-delivery');
+      deliveryId = request.headers.get('x-github-delivery');
       
-      // Verify webhook secret - only case where we return non-200
       if (!env.GITHUB_WEBHOOK_SECRET || !signature || !verifySignature(payload, signature, env.GITHUB_WEBHOOK_SECRET)) {
         console.error('Invalid webhook signature');
         return new Response('Invalid signature', { status: 401 });
       }
 
       const data = JSON.parse(payload);
+      const owner = data.repository.owner.login;
+      const repoName = data.repository.name;
       
-      try {
-        // Get or create team
-        const team = await getOrCreateTeam(
-          data.repository.owner.id,
-          data.repository.owner.login
-        );
-        const teamId = team.id;
+      // Get or create team
+      const team = await getOrCreateTeam(
+        data.repository.owner.id,
+        owner
+      );
+      const teamId = team.id;
 
-        // Get or create repository
-        const repo = await getOrCreateRepo(
-          teamId,
-          data.repository.name,
-          data.repository.id.toString(),
-          data.repository.html_url
-        );
+      // Get or create repository
+      const repo = await getOrCreateRepo(
+        teamId,
+        repoName,
+        data.repository.id.toString(),
+        data.repository.html_url
+      );
+      
+      // Variables used across switch cases
+      const commits: GitHubCommit[] = [];
+      let action = '';
+      const pr: GitHubPullRequest | null = null;
+      const contributor: Awaited<ReturnType<typeof getOrCreateContributor>> | null = null;
+      let eventType: EventType;
+      const prRecord: Awaited<ReturnType<typeof prisma.pullRequest.upsert>> | null = null;
+      
+      // Process webhook event
+      switch (event) {
+        case 'push': {
+          action = 'push';
+          const commits: GitHubCommit[] = [];
+          
+          for (const commit of data.commits) {
+            const fullCommit = await fetchCommitDetails(owner, repoName, commit.id);
+            if (!fullCommit || !fullCommit.author?.id) continue;
 
-        // Variables used across switch cases
-        let commits: GitHubCommit[] = [];
-        let action = '';
-        let pr: GitHubPullRequest | null = null;
-        let contributor: Awaited<ReturnType<typeof getOrCreateContributor>> | null = null;
-        let eventType: EventType;
-        let prRecord: Awaited<ReturnType<typeof prisma.pullRequest.upsert>> | null = null;
-
-        // Process webhook event
-        switch (event) {
-          case 'push':
-            commits = (data.commits || []).map(commit => ({
-              ...commit,
-              repository: data.repository.name
-            })) as GitHubCommit[];
-
-            for (const commit of commits) {
-              // Skip if no author info or username
-              if (!commit.author?.id || !commit.author.username) continue;
-
-              contributor = await getOrCreateContributor(
-                teamId,
-                commit.author.id.toString(),
-                commit.author.username,
-                commit.author.name || commit.author.username,
-                commit.author.avatar_url
-              );
-
-              if (!contributor) continue;
-
-              // Create commit record
-              const commitRecord = await createCommit(commit, repo.id, contributor.id);
-
-              // Create event record
-              await prisma.event.create({
-                data: {
-                  githubEventId: `${deliveryId}-${commit.id}`,
-                  type: EventType.COMMIT_PUSHED,
-                  details: {
-                    message: commit.message,
-                    linesAdded: commit.stats?.additions || 0,
-                    linesDeleted: commit.stats?.deletions || 0
-                  },
-                  rawJson: JSON.stringify(commit),
-                  contributorId: contributor.id,
-                  repoId: repo.id
-                }
-              });
-            }
-
-            // Update monthly stats with new commits
-            if (commits.length > 0) {
-              await updateMonthStats(teamId, new Date(commits[0].timestamp), commits);
-            }
-            break;
-
-          case 'pull_request':
-            action = data.action;
-            pr = {
-              ...data.pull_request,
-              repository: data.repository.name
-            } as GitHubPullRequest;
-
-            if (!pr?.user?.id) break;
-
-            contributor = await getOrCreateContributor(
-              teamId,
-              pr.user.id.toString(),
-              pr.user.login,
-              pr.user.name || pr.user.login,
-              pr.user.avatar_url
-            );
-
-            if (!contributor) break;
-
-            // Determine event type
-            switch (action) {
-              case 'opened':
-                eventType = EventType.PR_OPENED;
-                break;
-              case 'closed':
-                eventType = pr.merged ? EventType.PR_MERGED : EventType.PR_CLOSED;
-                break;
-              case 'reopened':
-                eventType = EventType.PR_REOPENED;
-                break;
-              default:
-                return new Response('Unhandled PR action', { status: 200 });
-            }
-
-            // Create or update PR record
-            prRecord = await createOrUpdatePullRequest(pr, repo.id, contributor.id);
-
-            // Create event record
-            await prisma.event.create({
-              data: {
-                githubEventId: `${deliveryId}-${pr.id}`,
-                type: eventType,
-                details: {
-                  title: pr.title,
-                  state: pr.state,
-                  merged: pr.merged,
-                  linesAdded: pr.additions || 0,
-                  linesDeleted: pr.deletions || 0,
-                  commits: pr.commits || 0,
-                  comments: (pr.comments || 0) + (pr.review_comments || 0)
-                },
-                rawJson: JSON.stringify(pr),
-                contributorId: contributor.id,
-                repoId: repo.id,
-                pullRequestId: prRecord.id
-              }
+            commits.push({
+              ...fullCommit,
+              repository: repoName,
+              timestamp: commit.timestamp
             });
 
-            // Update monthly stats with new PR
-            await updateMonthStats(teamId, new Date(), [], pr);
-            break;
-        }
+            // Create commit record
+            const contributor = await getOrCreateContributor(
+              teamId,
+              fullCommit.author.id.toString(),
+              fullCommit.author.username || '',
+              fullCommit.author.name || fullCommit.author.username || '',
+              fullCommit.author.avatar_url
+            );
+            if (!contributor) continue;
 
-        return new Response('Webhook processed', { status: 200 });
-      } catch (error) {
-        if (error.code === 'P2002') {
-          // Not an error - just a duplicate event
-          console.log('Skipping duplicate event:', deliveryId);
-        } else {
-          // Log actual errors but still return 200
-          console.error('Error processing webhook:', error);
+            await prisma.commit.upsert({
+              where: { githubCommitId: fullCommit.sha },
+              create: {
+                githubCommitId: fullCommit.sha,
+                message: fullCommit.message,
+                linesAdded: fullCommit.stats.additions,
+                linesDeleted: fullCommit.stats.deletions,
+                committedAt: new Date(fullCommit.date),
+                url: `https://github.com/${owner}/${repoName}/commit/${fullCommit.sha}`,
+                repoId: repo.id,
+                authorId: contributor.id
+              },
+              update: {
+                message: fullCommit.message,
+                linesAdded: fullCommit.stats.additions,
+                linesDeleted: fullCommit.stats.deletions,
+                committedAt: new Date(fullCommit.date),
+                url: `https://github.com/${owner}/${repoName}/commit/${fullCommit.sha}`,
+                repoId: repo.id,
+                authorId: contributor.id
+              }
+            });
+          }
+
+          // Update monthly stats with new commits
+          if (commits.length > 0) {
+            await updateMonthStats(teamId, new Date(commits[0].timestamp), commits);
+          }
+          break;
         }
-        
-        // Always return 200 to acknowledge receipt
-        return new Response('Webhook received', { status: 200 });
+          
+        case 'pull_request': {
+          action = data.action;
+          const fullPR = await fetchPullRequestDetails(owner, repoName, data.pull_request.number);
+          if (!fullPR || !fullPR.user?.id) break;
+
+          const contributor = await getOrCreateContributor(
+            teamId,
+            fullPR.user.id.toString(),
+            fullPR.user.login,
+            fullPR.user.name || fullPR.user.login,
+            fullPR.user.avatar_url
+          );
+          if (!contributor) break;
+
+          await prisma.pullRequest.upsert({
+            where: { githubPrId: fullPR.number },
+            create: {
+              githubPrId: fullPR.number,
+              title: fullPR.title,
+              description: data.pull_request.body || '',
+              status: fullPR.merged ? 'MERGED' : fullPR.state === 'closed' ? 'CLOSED' : 'OPEN',
+              isDraft: fullPR.draft,
+              isMerged: fullPR.merged,
+              sourceBranch: fullPR.head.ref,
+              targetBranch: fullPR.base.ref,
+              openedAt: new Date(fullPR.created_at),
+              mergedAt: fullPR.merged_at ? new Date(fullPR.merged_at) : null,
+              closedAt: fullPR.closed_at ? new Date(fullPR.closed_at) : null,
+              url: `https://github.com/${owner}/${repoName}/pull/${fullPR.number}`,
+              linesAdded: fullPR.additions || 0,
+              linesDeleted: fullPR.deletions || 0,
+              commits: fullPR.commits || 0,
+              comments: (fullPR.comments || 0) + (fullPR.review_comments || 0),
+              reviews: fullPR.review_comments || 0,
+              authorId: contributor.id,
+              repoId: repo.id
+            },
+            update: {
+              status: fullPR.merged ? 'MERGED' : fullPR.state === 'closed' ? 'CLOSED' : 'OPEN',
+              isDraft: fullPR.draft,
+              isMerged: fullPR.merged,
+              openedAt: new Date(fullPR.created_at),
+              mergedAt: fullPR.merged_at ? new Date(fullPR.merged_at) : null,
+              closedAt: fullPR.closed_at ? new Date(fullPR.closed_at) : null,
+              url: `https://github.com/${owner}/${repoName}/pull/${fullPR.number}`,
+              linesAdded: fullPR.additions || 0,
+              linesDeleted: fullPR.deletions || 0,
+              commits: fullPR.commits || 0,
+              comments: (fullPR.comments || 0) + (fullPR.review_comments || 0),
+              reviews: fullPR.review_comments || 0
+            }
+          });
+
+          // Update monthly stats with new PR
+          await updateMonthStats(teamId, new Date(), [], fullPR);
+          break;
+        }
       }
-    } catch (error) {
-      // Log parsing errors but return 200
-      console.error('Error parsing webhook payload:', error);
+
+      return new Response('Webhook processed', { status: 200 });
+    } catch (error: unknown) {
+      const isPrismaError = (err: unknown): err is PrismaError => 
+        typeof err === 'object' && err !== null && 'code' in err;
+
+      if (isPrismaError(error) && error.code === 'P2002') {
+        // Not an error - just a duplicate event
+        console.log('Skipping duplicate event:', deliveryId);
+      } else {
+        // Log actual errors but still return 200
+        console.error('Error processing webhook:', error);
+      }
       return new Response('Webhook received', { status: 200 });
     }
   }
@@ -553,4 +682,4 @@ export const handleWebhook = async (request: Request, env: Env) => {
     waitUntil: () => {},
     passThroughOnException: () => {}
   });
-}; 
+};

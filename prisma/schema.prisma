@@ -79,6 +79,7 @@ model PullRequest {
   isMerged     Boolean     @default(false)
   sourceBranch String
   targetBranch String
+  openedAt     DateTime?    // When the PR was opened on GitHub
   mergedAt     DateTime?
   closedAt     DateTime?
   url          String?     // GitHub URL for the pull request
@@ -99,6 +100,7 @@ model PullRequest {
   @@index([authorId])
   @@index([createdAt])
   @@index([status])
+  @@index([openedAt])
 }
 
 model Event {

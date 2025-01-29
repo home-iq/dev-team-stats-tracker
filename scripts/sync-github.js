@@ -20,9 +20,28 @@ const octokit = new Octokit({
   auth: process.env.GITHUB_KEY,
   request: {
     hook: async (request, options) => {
-      const result = await request(options);
-      await updateApiCallCount();
-      return result;
+      try {
+        // Increment counter before the request
+        apiCallCounter++;
+        apiSpinner.text = `GitHub API Calls: ${apiCallCounter.toLocaleString()}`;
+        
+        const result = await request(options);
+        
+        // Update remaining calls after the request
+        const rateLimit = result.headers?.['x-ratelimit-remaining'];
+        if (rateLimit) {
+          apiSpinner.text = `GitHub API Calls: ${apiCallCounter.toLocaleString()} (${rateLimit} remaining)`;
+        }
+        
+        return result;
+      } catch (error) {
+        // Update spinner even on error
+        const rateLimit = error.response?.headers?.['x-ratelimit-remaining'];
+        if (rateLimit) {
+          apiSpinner.text = `GitHub API Calls: ${apiCallCounter.toLocaleString()} (${rateLimit} remaining)`;
+        }
+        throw error;
+      }
     }
   }
 });
@@ -39,7 +58,7 @@ const RETRY_DELAY = 5000; // 5 seconds
 // Track API calls
 let apiCallCounter = 0;
 const apiSpinner = ora({
-  text: chalk.blue('GitHub API Calls: 0'),
+  text: 'GitHub API Calls: 0',
   color: 'blue',
   spinner: 'dots'
 }).start();
@@ -59,32 +78,28 @@ async function log(message, type = 'info') {
   const timestamp = format(new Date(), 'yyyy-MM-dd HH:mm:ss');
   const logMessage = `[${timestamp}] ${message}\n`;
   
-  // Write to console (with colors)
-  switch (type) {
-    case 'error':
-      console.error(chalk.red(message));
-      break;
-    case 'warning':
-      console.warn(chalk.yellow(message));
-      break;
-    case 'success':
-      console.log(chalk.green(message));
-      break;
-    default:
-      console.log(message);
+  // Only write to console if it's not a spinner update
+  if (!message.startsWith('GitHub API Calls:')) {
+    // Clear spinner, print message, then restore spinner
+    apiSpinner.stop();
+    switch (type) {
+      case 'error':
+        console.error(chalk.red(message));
+        break;
+      case 'warning':
+        console.warn(chalk.yellow(message));
+        break;
+      case 'success':
+        console.log(chalk.green(message));
+        break;
+      default:
+        console.log(message);
+    }
+    apiSpinner.start();
   }
   
   // Write to file (without colors)
   await fs.appendFile(LOG_FILE, logMessage);
-}
-
-// Update the counter and display
-async function updateApiCallCount() {
-  apiCallCounter++;
-  const rateLimit = await octokit.rateLimit.get();
-  const message = `GitHub API Calls: ${apiCallCounter.toLocaleString()} (${rateLimit.data.rate.remaining.toLocaleString()} remaining)`;
-  apiSpinner.text = chalk.blue(message);
-  await log(message);
 }
 
 // Ensure cache directory exists
@@ -137,6 +152,7 @@ async function fetchRepositories() {
 
 // Fetch commits for a repository in a given month
 async function fetchMonthlyCommits(repo, startDate, endDate) {
+  const failedCommits = [];
   const commits = await octokit.paginate(octokit.repos.listCommits, {
     owner: GITHUB_ORG,
     repo: repo.name,
@@ -145,62 +161,145 @@ async function fetchMonthlyCommits(repo, startDate, endDate) {
     per_page: 100
   });
 
-  return commits.map(commit => ({
-    sha: commit.sha,
-    message: commit.commit.message,
-    author: {
-      id: commit.author?.id,
-      login: commit.author?.login,
-      name: commit.commit.author.name,
-      avatar_url: commit.author?.avatar_url
-    },
-    date: commit.commit.author.date,
-    stats: {
-      additions: commit.stats?.additions || 0,
-      deletions: commit.stats?.deletions || 0
+  // Fetch detailed commit data for each commit
+  const detailedCommits = await Promise.all(
+    commits.map(async commit => {
+      // Try up to 3 times for each commit
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const { data: fullCommit } = await octokit.repos.getCommit({
+            owner: GITHUB_ORG,
+            repo: repo.name,
+            ref: commit.sha
+          });
+          return {
+            sha: commit.sha,
+            message: commit.commit.message,
+            author: {
+              id: commit.author?.id,
+              login: commit.author?.login,
+              name: commit.commit.author.name,
+              avatar_url: commit.author?.avatar_url
+            },
+            date: commit.commit.author.date,
+            stats: {
+              additions: fullCommit.stats?.additions || 0,
+              deletions: fullCommit.stats?.deletions || 0
+            }
+          };
+        } catch (error) {
+          if (attempt === 2) { // Last attempt failed
+            failedCommits.push({
+              sha: commit.sha,
+              repo: repo.name,
+              error: error.message,
+              author: commit.author?.login || 'unknown',
+              command: `gh api /repos/${GITHUB_ORG}/${repo.name}/commits/${commit.sha}`
+            });
+            await log(`RETRY_COMMIT|${repo.name}|${commit.sha}|${commit.author?.login || 'unknown'}|${error.message}`, 'error');
+            return null;
+          }
+          // Wait before retrying
+          await setTimeout(RETRY_DELAY);
+        }
+      }
+    })
+  );
+
+  const successfulCommits = detailedCommits.filter(Boolean);
+  if (failedCommits.length > 0) {
+    await log(`\nFailed to fetch ${failedCommits.length} commits in ${repo.name} after 3 attempts:`, 'error');
+    for (const failed of failedCommits) {
+      await log(`FAILED_COMMIT|${failed.repo}|${failed.sha}|${failed.author}|${failed.error}`, 'error');
+      await log(`To retry: ${failed.command}`, 'error');
     }
-  }));
+  }
+
+  return successfulCommits;
 }
 
 // Fetch pull requests for a repository in a given month
 async function fetchMonthlyPullRequests(repo, startDate, endDate) {
+  const failedPRs = [];
   const prs = await octokit.paginate(octokit.pulls.list, {
     owner: GITHUB_ORG,
     repo: repo.name,
     state: 'all',
-    sort: 'updated',
+    sort: 'created',
     direction: 'desc',
     per_page: 100
   });
 
-  return prs
-    .filter(pr => {
-      const updatedAt = new Date(pr.updated_at);
-      return updatedAt >= startDate && updatedAt < endDate;
+  // Filter PRs by creation date instead of update date
+  const filteredPRs = prs.filter(pr => {
+    const createdAt = new Date(pr.created_at);
+    return createdAt >= startDate && createdAt < endDate;
+  });
+
+  // Fetch detailed PR data
+  const detailedPRs = await Promise.all(
+    filteredPRs.map(async pr => {
+      // Try up to 3 times for each PR
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const { data: fullPR } = await octokit.pulls.get({
+            owner: GITHUB_ORG,
+            repo: repo.name,
+            pull_number: pr.number
+          });
+          return {
+            number: pr.number,
+            title: pr.title,
+            body: pr.body,
+            state: pr.state,
+            draft: pr.draft,
+            merged: pr.merged_at !== null,
+            head: { ref: pr.head.ref },
+            base: { ref: pr.base.ref },
+            user: {
+              id: pr.user.id,
+              login: pr.user.login,
+              name: pr.user.login,
+              avatar_url: pr.user.avatar_url
+            },
+            created_at: pr.created_at || fullPR.created_at,  // Use PR creation date from either source
+            merged_at: pr.merged_at || fullPR.merged_at,
+            closed_at: pr.closed_at || fullPR.closed_at,
+            additions: fullPR.additions || 0,
+            deletions: fullPR.deletions || 0,
+            commits: fullPR.commits || 0,
+            comments: fullPR.comments || 0,
+            review_comments: fullPR.review_comments || 0
+          };
+        } catch (error) {
+          if (attempt === 2) { // Last attempt failed
+            failedPRs.push({
+              number: pr.number,
+              repo: repo.name,
+              error: error.message,
+              author: pr.user?.login || 'unknown',
+              command: `gh api /repos/${GITHUB_ORG}/${repo.name}/pulls/${pr.number}`
+            });
+            await log(`RETRY_PR|${repo.name}|${pr.number}|${pr.user?.login || 'unknown'}|${error.message}`, 'error');
+            return null;
+          }
+          // Wait before retrying
+          await setTimeout(RETRY_DELAY);
+        }
+      }
     })
-    .map(pr => ({
-      number: pr.number,
-      title: pr.title,
-      body: pr.body,
-      state: pr.state,
-      draft: pr.draft,
-      merged: pr.merged_at !== null,
-      head: { ref: pr.head.ref },
-      base: { ref: pr.base.ref },
-      user: {
-        id: pr.user.id,
-        login: pr.user.login,
-        name: pr.user.login,
-        avatar_url: pr.user.avatar_url
-      },
-      mergedAt: pr.merged_at,
-      closedAt: pr.closed_at,
-      additions: pr.additions,
-      deletions: pr.deletions,
-      commits: pr.commits,
-      comments: pr.comments,
-      review_comments: pr.review_comments
-    }));
+  );
+
+  const successfulPRs = detailedPRs.filter(Boolean);
+  if (failedPRs.length > 0) {
+    await log(`\nFailed to fetch ${failedPRs.length} pull requests in ${repo.name} after 3 attempts:`, 'error');
+    for (const failed of failedPRs) {
+      await log(`FAILED_PR|${failed.repo}|${failed.number}|${failed.author}|${failed.error}`, 'error');
+      await log(`To retry: ${failed.command}`, 'error');
+    }
+  }
+
+  return successfulPRs;
 }
 
 // Utility for retrying failed operations
@@ -260,6 +359,10 @@ async function processMonth(date, progressState, teamId) {
   const endDate = startOfMonth(addMonths(date, 1));
   const monthStr = format(date, 'MMMM yyyy');  // e.g., "January 2024"
   
+  // Track total failures
+  let totalFailedCommits = 0;
+  let totalFailedPRs = 0;
+  
   // Check if we should resume from a previous state
   let completedRepos = new Set();
   let currentRepo = null;
@@ -286,14 +389,16 @@ async function processMonth(date, progressState, teamId) {
 
   // Process each repository
   const spinner = ora().start();
+  const allCommits = [];
+  const allPullRequests = [];
+  
   for (const repo of repos) {
     if (completedRepos.has(repo.id)) {
-      spinner.text = `Skipping completed repository: ${repo.name}`;
+      spinner.text = chalk.gray(`Skipping ${repo.name} (already processed)`);
       continue;
     }
 
-    spinner.text = `Processing repository: ${repo.name}`;
-
+    spinner.text = chalk.blue(`Processing ${repo.name}`);
     try {
       // Get or create repo record
       const dbRepo = await getOrCreateRepo(teamId, repo);
@@ -312,10 +417,15 @@ async function processMonth(date, progressState, teamId) {
       }
 
       // Fetch monthly data
-      const [commits, pullRequests] = await Promise.all([
-        fetchMonthlyCommits(repo, startDate, endDate),
-        fetchMonthlyPullRequests(repo, startDate, endDate)
-      ]);
+      spinner.text = chalk.blue(`Fetching commits for ${repo.name}...`);
+      const commits = await fetchMonthlyCommits(repo, startDate, endDate);
+      allCommits.push(...commits.map(c => ({ ...c, repository: repo.id })));
+      
+      spinner.text = chalk.blue(`Fetching PRs for ${repo.name}...`);
+      const pullRequests = await fetchMonthlyPullRequests(repo, startDate, endDate);
+      allPullRequests.push(...pullRequests.map(pr => ({ ...pr, repository: repo.id })));
+      
+      spinner.text = chalk.blue(`Processing ${commits.length} commits and ${pullRequests.length} PRs for ${repo.name}...`);
 
       // Process commits
       for (const commit of commits) {
@@ -323,7 +433,7 @@ async function processMonth(date, progressState, teamId) {
 
         const contributor = await getOrCreateContributor(teamId, commit.author);
         if (contributor) {
-          await createCommit(commit, dbRepo.id, contributor.id);
+          await createCommit(commit, dbRepo.id, contributor.id, repo.name);
 
           // Update repository stats
           const repoStats = monthStats.repositories[repo.id];
@@ -342,7 +452,9 @@ async function processMonth(date, progressState, teamId) {
               linesAdded: 0,
               linesRemoved: 0,
               activeRepositories: [],
-              contributionScore: 0
+              contributionScore: 0,
+              tabs: 0,
+              premiumRequests: 0
             };
           }
           const contributorStats = monthStats.contributors[userId];
@@ -366,7 +478,7 @@ async function processMonth(date, progressState, teamId) {
 
         const contributor = await getOrCreateContributor(teamId, pr.user);
         if (contributor) {
-          await createOrUpdatePullRequest(pr, dbRepo.id, contributor.id);
+          await createOrUpdatePullRequest(pr, dbRepo.id, contributor.id, repo.name);
 
           // Update repository stats
           const repoStats = monthStats.repositories[repo.id];
@@ -374,8 +486,8 @@ async function processMonth(date, progressState, teamId) {
           if (pr.merged) {
             repoStats.mergedPrs++;
           }
-          repoStats.linesAdded += pr.additions;
-          repoStats.linesRemoved += pr.deletions;
+          repoStats.linesAdded += pr.additions || 0;
+          repoStats.linesRemoved += pr.deletions || 0;
 
           // Update contributor stats
           const userId = pr.user.id.toString();
@@ -388,7 +500,9 @@ async function processMonth(date, progressState, teamId) {
               linesAdded: 0,
               linesRemoved: 0,
               activeRepositories: [],
-              contributionScore: 0
+              contributionScore: 0,
+              tabs: 0,
+              premiumRequests: 0
             };
           }
           const contributorStats = monthStats.contributors[userId];
@@ -396,8 +510,8 @@ async function processMonth(date, progressState, teamId) {
           if (pr.merged) {
             contributorStats.mergedPrs++;
           }
-          contributorStats.linesAdded += pr.additions;
-          contributorStats.linesRemoved += pr.deletions;
+          contributorStats.linesAdded += pr.additions || 0;
+          contributorStats.linesRemoved += pr.deletions || 0;
           if (!contributorStats.activeRepositories.includes(repo.id)) {
             contributorStats.activeRepositories.push(repo.id);
           }
@@ -407,25 +521,26 @@ async function processMonth(date, progressState, teamId) {
           if (pr.merged) {
             monthStats.overall.mergedPrs++;
           }
-          monthStats.overall.linesAdded += pr.additions;
-          monthStats.overall.linesRemoved += pr.deletions;
+          monthStats.overall.linesAdded += pr.additions || 0;
+          monthStats.overall.linesRemoved += pr.deletions || 0;
         }
       }
 
       // Update active contributors count
-      repoStats.activeContributors = Object.values(monthStats.contributors)
+      monthStats.repositories[repo.id].activeContributors = Object.values(monthStats.contributors)
         .filter(c => c.activeRepositories.includes(repo.id))
         .length;
 
       completedRepos.add(repo.id);
+      const rateLimit = await octokit.rateLimit.get();
       await saveProgressState({
         lastSuccessfulRun: {
           month: format(date, 'yyyy-MM'),
           completedRepos: Array.from(completedRepos),
           currentRepo: repo.id,
           githubApi: {
-            callsRemaining: (await octokit.rateLimit.get()).data.rate.remaining,
-            resetTimestamp: new Date((await octokit.rateLimit.get()).data.rate.reset * 1000).toISOString()
+            callsRemaining: rateLimit.data.rate.remaining,
+            resetTimestamp: new Date(rateLimit.data.rate.reset * 1000).toISOString()
           }
         }
       });
@@ -453,7 +568,19 @@ async function processMonth(date, progressState, teamId) {
     scoreValues.length > 0 ? scoreValues.reduce((a, b) => a + b) / scoreValues.length : 0;
 
   spinner.succeed(`Completed processing all repositories for ${monthStr}`);
-  return monthStats;
+
+  // After processing all repositories, log total failures
+  if (totalFailedCommits > 0 || totalFailedPRs > 0) {
+    await log('\nSummary of failed fetches:', 'error');
+    if (totalFailedCommits > 0) {
+      await log(`Failed to fetch ${totalFailedCommits} commits`, 'error');
+    }
+    if (totalFailedPRs > 0) {
+      await log(`Failed to fetch ${totalFailedPRs} pull requests`, 'error');
+    }
+  }
+
+  return { monthStats, commits: allCommits, pullRequests: allPullRequests };
 }
 
 // Update month stats in database
@@ -651,7 +778,7 @@ async function getOrCreateContributor(teamId, author) {
 }
 
 // Create commit record
-async function createCommit(commit, repoId, authorId) {
+async function createCommit(commit, repoId, authorId, repoName) {
   return prisma.commit.upsert({
     where: { githubCommitId: commit.sha },
     create: {
@@ -660,30 +787,49 @@ async function createCommit(commit, repoId, authorId) {
       linesAdded: commit.stats.additions,
       linesDeleted: commit.stats.deletions,
       committedAt: new Date(commit.date),
-      url: `https://github.com/${GITHUB_ORG}/${repo.name}/commit/${commit.sha}`,
+      url: `https://github.com/${GITHUB_ORG}/${repoName}/commit/${commit.sha}`,
       repoId: repoId,
       authorId: authorId
     },
-    update: {} // No updates needed for commits
+    update: {
+      message: commit.message,
+      linesAdded: commit.stats.additions,
+      linesDeleted: commit.stats.deletions,
+      committedAt: new Date(commit.date),
+      url: `https://github.com/${GITHUB_ORG}/${repoName}/commit/${commit.sha}`,
+      repoId: repoId,
+      authorId: authorId
+    }
   });
 }
 
 // Create or update pull request record
-async function createOrUpdatePullRequest(pr, repoId, authorId) {
+async function createOrUpdatePullRequest(pr, repoId, authorId, repoName) {
+  // Validate dates before creating/updating
+  const openedAt = pr.created_at ? new Date(pr.created_at) : null;
+  const mergedAt = pr.merged_at ? new Date(pr.merged_at) : null;
+  const closedAt = pr.closed_at ? new Date(pr.closed_at) : null;
+
+  // Ensure we have a valid openedAt date
+  if (!openedAt || isNaN(openedAt.getTime())) {
+    throw new Error(`Invalid openedAt date for PR #${pr.number}: ${pr.created_at}`);
+  }
+
   return prisma.pullRequest.upsert({
     where: { githubPrId: pr.number },
     create: {
       githubPrId: pr.number,
       title: pr.title,
       description: pr.body || '',
-      status: pr.merged ? 'MERGED' : pr.state.toUpperCase(),
+      status: pr.merged ? 'MERGED' : pr.state === 'closed' ? 'CLOSED' : 'OPEN',
       isDraft: pr.draft,
       isMerged: pr.merged,
       sourceBranch: pr.head.ref,
       targetBranch: pr.base.ref,
-      mergedAt: pr.mergedAt ? new Date(pr.mergedAt) : null,
-      closedAt: pr.closedAt ? new Date(pr.closedAt) : null,
-      url: `https://github.com/${GITHUB_ORG}/${repo.name}/pull/${pr.number}`,
+      openedAt,
+      mergedAt,
+      closedAt,
+      url: `https://github.com/${GITHUB_ORG}/${repoName}/pull/${pr.number}`,
       linesAdded: pr.additions || 0,
       linesDeleted: pr.deletions || 0,
       commits: pr.commits || 0,
@@ -693,12 +839,13 @@ async function createOrUpdatePullRequest(pr, repoId, authorId) {
       repoId: repoId
     },
     update: {
-      status: pr.merged ? 'MERGED' : pr.state.toUpperCase(),
+      status: pr.merged ? 'MERGED' : pr.state === 'closed' ? 'CLOSED' : 'OPEN',
       isDraft: pr.draft,
       isMerged: pr.merged,
-      mergedAt: pr.mergedAt ? new Date(pr.mergedAt) : null,
-      closedAt: pr.closedAt ? new Date(pr.closedAt) : null,
-      url: `https://github.com/${GITHUB_ORG}/${repo.name}/pull/${pr.number}`,
+      openedAt,
+      mergedAt,
+      closedAt,
+      url: `https://github.com/${GITHUB_ORG}/${repoName}/pull/${pr.number}`,
       linesAdded: pr.additions || 0,
       linesDeleted: pr.deletions || 0,
       commits: pr.commits || 0,
@@ -708,30 +855,204 @@ async function createOrUpdatePullRequest(pr, repoId, authorId) {
   });
 }
 
-// Parse command line arguments
+// Add retry functionality
+async function findFailedItems(numLogs = 0) {
+  const logFiles = await fs.readdir(LOG_DIR);
+  const failedItems = {
+    commits: new Map(), // sha -> {repo, author, lastAttempt}
+    prs: new Map()     // number -> {repo, author, lastAttempt}
+  };
+
+  // Sort log files by date (newest first)
+  const syncLogFiles = logFiles
+    .filter(file => file.startsWith('sync-') && file.endsWith('.log'))
+    .sort((a, b) => {
+      const dateA = new Date(a.slice(5, -4).replace(/-/g, '/')); // Extract date from filename
+      const dateB = new Date(b.slice(5, -4).replace(/-/g, '/')); // sync-YYYY-MM-DD-HH-mm-ss.log
+      return dateB - dateA;
+    });
+
+  // Only look at the specified number of most recent logs if numLogs > 0
+  const logsToProcess = numLogs > 0 ? syncLogFiles.slice(0, numLogs) : syncLogFiles;
+  
+  for (const file of logsToProcess) {
+    const content = await fs.readFile(path.join(LOG_DIR, file), 'utf8');
+    const lines = content.split('\n');
+    const fileDate = new Date(file.slice(5, -4).replace(/-/g, '/'));
+    
+    for (const line of lines) {
+      // For successful retries, remove from failed items
+      if (line.includes('Successfully reprocessed commit')) {
+        const sha = line.match(/commit ([a-f0-9]+)/)?.[1];
+        if (sha) failedItems.commits.delete(sha);
+      } else if (line.includes('Successfully reprocessed PR #')) {
+        const number = line.match(/PR #(\d+)/)?.[1];
+        if (number) failedItems.prs.delete(number);
+      }
+      // For failures, add or update
+      else if (line.includes('FAILED_COMMIT|') || line.includes('RETRY_COMMIT|') || line.includes('RETRY_FAILED_COMMIT|')) {
+        const [, repo, sha, author] = line.split('|');
+        // Only add if not already marked as successful in this file
+        if (!line.includes('Successfully reprocessed')) {
+          failedItems.commits.set(sha, { repo, author, lastAttempt: fileDate });
+        }
+      } else if (line.includes('FAILED_PR|') || line.includes('RETRY_PR|') || line.includes('RETRY_FAILED_PR|')) {
+        const [, repo, number, author] = line.split('|');
+        // Only add if not already marked as successful in this file
+        if (!line.includes('Successfully reprocessed')) {
+          failedItems.prs.set(number, { repo, author, lastAttempt: fileDate });
+        }
+      }
+    }
+  }
+
+  return failedItems;
+}
+
+async function retryFailedItems(teamId, numLogs = 0) {
+  const spinner = ora('Finding failed items in logs...').start();
+  const failed = await findFailedItems(numLogs);
+  
+  const numLogsMsg = numLogs > 0 ? ` from the last ${numLogs} log file${numLogs === 1 ? '' : 's'}` : ' from all log files';
+  spinner.text = `Found ${failed.commits.size} failed commits and ${failed.prs.size} failed PRs${numLogsMsg}`;
+  
+  if (failed.commits.size === 0 && failed.prs.size === 0) {
+    spinner.succeed('No failed items found to retry');
+    return;
+  }
+
+  // Retry commits
+  if (failed.commits.size > 0) {
+    spinner.text = 'Retrying failed commits...';
+    for (const [sha, { repo, author, lastAttempt }] of failed.commits) {
+      try {
+        const lastAttemptStr = lastAttempt ? ` (last attempted: ${format(lastAttempt, 'yyyy-MM-dd HH:mm:ss')})` : '';
+        spinner.text = `Retrying commit ${sha} in ${repo}${lastAttemptStr}...`;
+        const { data: fullCommit } = await octokit.repos.getCommit({
+          owner: GITHUB_ORG,
+          repo,
+          ref: sha
+        });
+
+        // Get or create repo record
+        const dbRepo = await getOrCreateRepo(teamId, { name: repo, id: fullCommit.repository?.id?.toString() });
+
+        const commit = {
+          sha,
+          message: fullCommit.commit.message,
+          author: {
+            id: fullCommit.author?.id,
+            login: fullCommit.author?.login,
+            name: fullCommit.commit.author.name,
+            avatar_url: fullCommit.author?.avatar_url
+          },
+          date: fullCommit.commit.author.date,
+          stats: {
+            additions: fullCommit.stats?.additions || 0,
+            deletions: fullCommit.stats?.deletions || 0
+          }
+        };
+
+        const contributor = await getOrCreateContributor(teamId, commit.author);
+        if (contributor) {
+          await createCommit(commit, dbRepo.id, contributor.id, repo);
+          spinner.succeed(`Successfully reprocessed commit ${sha}`);
+        }
+      } catch (error) {
+        spinner.fail(`Failed to reprocess commit ${sha}: ${error.message}`);
+        await log(`RETRY_FAILED_COMMIT|${repo}|${sha}|${author}|${error.message}`, 'error');
+      }
+    }
+  }
+
+  // Retry PRs
+  if (failed.prs.size > 0) {
+    spinner.text = 'Retrying failed pull requests...';
+    for (const [number, { repo, author, lastAttempt }] of failed.prs) {
+      try {
+        const lastAttemptStr = lastAttempt ? ` (last attempted: ${format(lastAttempt, 'yyyy-MM-dd HH:mm:ss')})` : '';
+        spinner.text = `Retrying PR #${number} in ${repo}${lastAttemptStr}...`;
+        const { data: fullPR } = await octokit.pulls.get({
+          owner: GITHUB_ORG,
+          repo,
+          pull_number: parseInt(number)
+        });
+
+        // Get or create repo record
+        const dbRepo = await getOrCreateRepo(teamId, { name: repo, id: fullPR.base.repo.id.toString() });
+
+        const pr = {
+          number: parseInt(number),
+          title: fullPR.title,
+          body: fullPR.body,
+          state: fullPR.state,
+          draft: fullPR.draft,
+          merged: fullPR.merged,
+          head: { ref: fullPR.head.ref },
+          base: { ref: fullPR.base.ref },
+          user: {
+            id: fullPR.user.id,
+            login: fullPR.user.login,
+            name: fullPR.user.login,
+            avatar_url: fullPR.user.avatar_url
+          },
+          mergedAt: fullPR.merged_at,
+          closedAt: fullPR.closed_at,
+          additions: fullPR.additions || 0,
+          deletions: fullPR.deletions || 0,
+          commits: fullPR.commits || 0,
+          comments: fullPR.comments || 0,
+          review_comments: fullPR.review_comments || 0
+        };
+
+        const contributor = await getOrCreateContributor(teamId, pr.user);
+        if (contributor) {
+          await createOrUpdatePullRequest(pr, dbRepo.id, contributor.id, repo);
+          spinner.succeed(`Successfully reprocessed PR #${number}`);
+        }
+      } catch (error) {
+        spinner.fail(`Failed to reprocess PR #${number}: ${error.message}`);
+        await log(`RETRY_FAILED_PR|${repo}|${number}|${author}|${error.message}`, 'error');
+      }
+    }
+  }
+
+  spinner.succeed(`Completed retry attempts for ${failed.commits.size} commits and ${failed.prs.size} PRs`);
+}
+
+// Update command line arguments
 program
   .requiredOption('-s, --start-date <date>', 'Start date (YYYY-MM)')
   .requiredOption('-m, --months <number>', 'Number of months to process', parseInt)
   .option('-f, --force', 'Ignore saved progress state')
+  .option('-r, --retry [number]', 'Retry failed items from logs, optionally specify number of recent log files to check', (value) => value ? parseInt(value) : 1)
   .parse(process.argv);
 
-const options = program.opts();
-
-// Main execution
+// Update main function
 async function main() {
   try {
     await ensureDirectories();
-    await log('Starting GitHub sync script');
-    await log(`Command: sync-github.js --start-date ${options.startDate} --months ${options.months}${options.force ? ' --force' : ''}`);
+    
+    const options = program.opts();
+    const teamId = await getTeamId();
+
+    if (options.retry !== undefined) {
+      const numLogs = options.retry;
+      const logsMsg = ` from the last ${numLogs} log file${numLogs === 1 ? '' : 's'}`;
+      await log(`Running in retry mode - will attempt to reprocess failed items${logsMsg}`);
+      await retryFailedItems(teamId, numLogs);
+      apiSpinner.stop();
+      return;
+    }
+
+    await log('\nStarting GitHub sync script');
+    await log(`Command: sync-github.js --start-date ${options.startDate} --months ${options.months}${options.force ? ' --force' : ''}\n`);
     
     // Validate start date
     const startDate = parse(options.startDate, 'yyyy-MM', new Date());
     if (isNaN(startDate.getTime())) {
       throw new Error('Invalid start date format. Use YYYY-MM');
     }
-
-    // Get team ID
-    const teamId = await getTeamId();
 
     // Initialize or load progress state
     let progressState = null;
@@ -748,7 +1069,7 @@ async function main() {
       const spinner = ora('Starting monthly processing...').start();
 
       try {
-        const monthStats = await withRetry(
+        const { monthStats, commits, pullRequests } = await withRetry(
           () => processMonth(currentMonth, progressState, teamId),
           `processing ${monthStr}`,
           progressState
@@ -756,7 +1077,90 @@ async function main() {
 
         spinner.succeed(`Completed processing ${monthStr}`);
         await updateMonthStats(teamId, currentMonth, monthStats);
-        await printMonthSummary(monthStats);
+        
+        // Get existing commits and PRs from database
+        const existingCommits = new Set((await prisma.commit.findMany({
+          where: { 
+            repoId: { in: Object.keys(monthStats.repositories) },
+            committedAt: {
+              gte: startOfMonth(currentMonth),
+              lt: startOfMonth(addMonths(currentMonth, 1))
+            }
+          },
+          select: { githubCommitId: true }
+        })).map(c => c.githubCommitId));
+
+        const existingPRs = new Set((await prisma.pullRequest.findMany({
+          where: { 
+            repoId: { in: Object.keys(monthStats.repositories) },
+            openedAt: {
+              gte: startOfMonth(currentMonth),
+              lt: startOfMonth(addMonths(currentMonth, 1))
+            }
+          },
+          select: { githubPrId: true }
+        })).map(pr => pr.githubPrId));
+
+        // For contributors, we still want to check all existing ones since they persist across months
+        const existingContributors = new Set((await prisma.contributor.findMany({
+          where: { teamId },
+          select: { githubUserId: true }
+        })).map(c => c.githubUserId));
+        
+        // Initialize dbStats with default values
+        const dbStats = {
+          total: {
+            newCommits: 0,
+            existingCommits: 0,
+            newPRs: 0,
+            existingPRs: 0,
+            newContributors: 0
+          },
+          apiCallsRemaining: (await octokit.rateLimit.get()).data.rate.remaining
+        };
+        
+        // Add stats for each repository
+        Object.entries(monthStats.repositories).forEach(([repoId, stats]) => {
+          // Count new vs existing commits for this repo
+          const repoCommits = commits.filter(c => c.repository === repoId);
+          const newCommitsCount = repoCommits.filter(c => !existingCommits.has(c.sha)).length;
+          const existingCommitsCount = repoCommits.length - newCommitsCount;
+
+          // Count new vs existing PRs for this repo
+          const repoPRs = pullRequests.filter(pr => pr.repository === repoId);
+          const newPRsCount = repoPRs.filter(pr => !existingPRs.has(pr.number)).length;
+          const existingPRsCount = repoPRs.length - newPRsCount;
+
+          // Count new vs existing contributors for this repo
+          const repoContributors = new Set([
+            ...repoCommits.map(c => c.author?.id?.toString()).filter(Boolean),
+            ...repoPRs.map(pr => pr.user?.id?.toString()).filter(Boolean)
+          ]);
+          const newContributorsCount = Array.from(repoContributors).filter(id => !existingContributors.has(id)).length;
+
+          dbStats[repoId] = {
+            newCommits: newCommitsCount,
+            existingCommits: existingCommitsCount,
+            newPRs: newPRsCount,
+            existingPRs: existingPRsCount,
+            newContributors: newContributorsCount
+          };
+
+          // Add to totals
+          dbStats.total.newCommits += newCommitsCount;
+          dbStats.total.existingCommits += existingCommitsCount;
+          dbStats.total.newPRs += newPRsCount;
+          dbStats.total.existingPRs += existingPRsCount;
+        });
+
+        // Calculate total new contributors
+        const allContributors = new Set([
+          ...Object.values(monthStats.contributors).map(c => c.githubUserId)
+        ]);
+        dbStats.total.newContributors = Array.from(allContributors)
+          .filter(id => !existingContributors.has(id)).length;
+
+        await printMonthSummary(monthStats, dbStats);
 
       } catch (error) {
         spinner.fail(`Failed to process ${monthStr}`);
@@ -765,26 +1169,35 @@ async function main() {
     }
 
     await log('Sync completed successfully!', 'success');
+    apiSpinner.succeed(`Completed with ${apiCallCounter.toLocaleString()} API calls`);
 
   } catch (error) {
+    apiSpinner.fail(`Error after ${apiCallCounter.toLocaleString()} API calls: ${error.message}`);
     await log(`Error: ${error.message}`, 'error');
     if (error.status === 401) {
       await log('Authentication failed. Please check your GITHUB_KEY.', 'error');
     }
     process.exit(1);
   } finally {
+    // Ensure spinner is stopped and Prisma is disconnected
+    apiSpinner.stop();
     await prisma.$disconnect();
+    // Force exit after cleanup
+    process.exit(0);
   }
 }
 
-// Add error handlers
-process.on('unhandledRejection', (error) => {
-  console.error(chalk.red('Unhandled promise rejection:'), error);
+// Update error handlers
+process.on('unhandledRejection', async (error) => {
+  apiSpinner.fail(`Unhandled promise rejection after ${apiCallCounter.toLocaleString()} API calls`);
+  console.error(chalk.red('Error details:'), error);
+  await prisma.$disconnect();
   process.exit(1);
 });
 
 process.on('SIGINT', async () => {
-  console.log(chalk.yellow('\nReceived SIGINT. Cleaning up...'));
+  apiSpinner.warn(`\nInterrupted after ${apiCallCounter.toLocaleString()} API calls`);
+  console.log(chalk.yellow('Cleaning up...'));
   await prisma.$disconnect();
   process.exit(0);
 });
