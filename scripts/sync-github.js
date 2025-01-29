@@ -431,7 +431,33 @@ async function processMonth(date, progressState, teamId) {
       for (const commit of commits) {
         if (!commit.author?.id) continue;
 
-        const contributor = await getOrCreateContributor(teamId, commit.author);
+        // Special handling for lovable-dev[bot] commits in dev-team-stats-tracker
+        let authorToUse = commit.author;
+        if (commit.author.login === 'lovable-dev[bot]' && repo.name === 'dev-team-stats-tracker') {
+          // Find jonthewayne's contributor record
+          const jonthewayne = await prisma.contributor.findFirst({
+            where: {
+              teamId,
+              githubLogin: 'jonthewayne'
+            }
+          });
+          
+          if (jonthewayne) {
+            authorToUse = {
+              id: jonthewayne.githubUserId,
+              login: 'jonthewayne',
+              name: jonthewayne.name,
+              avatar_url: jonthewayne.avatarUrl
+            };
+          }
+        }
+
+        // Skip lovable-dev[bot] for other repositories
+        if (commit.author.login === 'lovable-dev[bot]' && repo.name !== 'dev-team-stats-tracker') {
+          continue;
+        }
+
+        const contributor = await getOrCreateContributor(teamId, authorToUse);
         if (contributor) {
           await createCommit(commit, dbRepo.id, contributor.id, repo.name);
 
@@ -442,10 +468,11 @@ async function processMonth(date, progressState, teamId) {
           repoStats.linesRemoved += commit.stats?.deletions || 0;
 
           // Update contributor stats
-          const userId = commit.author.id.toString();
+          const userId = authorToUse.id.toString();
           if (!monthStats.contributors[userId]) {
             monthStats.contributors[userId] = {
-              login: commit.author.login,
+              login: authorToUse.login,
+              githubUserId: userId,
               totalCommits: 0,
               totalPrs: 0,
               mergedPrs: 0,
@@ -475,6 +502,11 @@ async function processMonth(date, progressState, teamId) {
       // Process pull requests
       for (const pr of pullRequests) {
         if (!pr.user?.id) continue;
+
+        // Skip lovable-dev[bot] PRs entirely
+        if (pr.user.login === 'lovable-dev[bot]') {
+          continue;
+        }
 
         const contributor = await getOrCreateContributor(teamId, pr.user);
         if (contributor) {
