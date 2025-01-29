@@ -55,7 +55,8 @@ model Commit {
   message        String
   linesAdded     Int
   linesDeleted   Int
-  committedAt    DateTime
+  authoredAt     DateTime?    // When the changes were originally authored
+  committedAt    DateTime    // When the changes were committed to the repo
   url            String?     // GitHub URL for the commit
   repoId         String
   authorId       String
@@ -66,6 +67,7 @@ model Commit {
 
   @@index([repoId])
   @@index([authorId])
+  @@index([authoredAt])
   @@index([committedAt])
 }
 

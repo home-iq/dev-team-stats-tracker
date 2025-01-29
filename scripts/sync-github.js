@@ -221,7 +221,8 @@ async function fetchMonthlyCommits(repo, startDate, endDate) {
       name: commit.commit.author.name,
       avatar_url: commit.author?.avatar_url
     },
-    date: commit.commit.author.date,
+    authoredAt: commit.commit.author.date,
+    committedAt: commit.commit.committer.date,
     stats: {
               additions: fullCommit.stats?.additions || 0,
               deletions: fullCommit.stats?.deletions || 0
@@ -874,7 +875,8 @@ async function createCommit(commit, repoId, authorId, repoName) {
       message: commit.message,
       linesAdded: commit.stats.additions,
       linesDeleted: commit.stats.deletions,
-      committedAt: new Date(commit.date),
+      authoredAt: new Date(commit.authoredAt),
+      committedAt: new Date(commit.committedAt),
       url: `https://github.com/${GITHUB_ORG}/${repoName}/commit/${commit.sha}`,
       repoId: repoId,
       authorId: authorId
@@ -883,7 +885,8 @@ async function createCommit(commit, repoId, authorId, repoName) {
       message: commit.message,
       linesAdded: commit.stats.additions,
       linesDeleted: commit.stats.deletions,
-      committedAt: new Date(commit.date),
+      authoredAt: new Date(commit.authoredAt),
+      committedAt: new Date(commit.committedAt),
       url: `https://github.com/${GITHUB_ORG}/${repoName}/commit/${commit.sha}`,
       repoId: repoId,
       authorId: authorId
@@ -1034,7 +1037,8 @@ async function retryFailedItems(teamId, numLogs = 0) {
             name: fullCommit.commit.author.name,
             avatar_url: fullCommit.author?.avatar_url
           },
-          date: fullCommit.commit.author.date,
+          authoredAt: fullCommit.commit.author.date,
+          committedAt: fullCommit.commit.committer.date,
           stats: {
             additions: fullCommit.stats?.additions || 0,
             deletions: fullCommit.stats?.deletions || 0
