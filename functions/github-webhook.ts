@@ -8,7 +8,6 @@ const prisma = new PrismaClient();
 export interface Env {
   GITHUB_WEBHOOK_SECRET: string;
   GITHUB_KEY: string;
-  GITHUB_ORG: string;
 }
 
 interface GitHubCommit {
@@ -332,7 +331,7 @@ async function updateMonthStats(teamId: string, date: Date, newCommits: GitHubCo
 }
 
 // Create commit record
-async function createCommit(commit: GitHubCommit, repoId: string, authorId: string, env: Env) {
+async function createCommit(commit: GitHubCommit, repoId: string, authorId: string, orgName: string) {
   return prisma.commit.create({
     data: {
       githubCommitId: commit.id,
@@ -340,7 +339,7 @@ async function createCommit(commit: GitHubCommit, repoId: string, authorId: stri
       linesAdded: commit.stats?.additions || 0,
       linesDeleted: commit.stats?.deletions || 0,
       committedAt: new Date(commit.timestamp),
-      url: env.GITHUB_ORG ? `https://github.com/${env.GITHUB_ORG}/${commit.repository}/commit/${commit.sha}` : null,
+      url: `https://github.com/${orgName}/${commit.repository}/commit/${commit.sha}`,
       repoId: repoId,
       authorId: authorId
     }
@@ -348,7 +347,7 @@ async function createCommit(commit: GitHubCommit, repoId: string, authorId: stri
 }
 
 // Create or update pull request record
-async function createOrUpdatePullRequest(pr: GitHubPullRequest, repoId: string, authorId: string, env: Env) {
+async function createOrUpdatePullRequest(pr: GitHubPullRequest, repoId: string, authorId: string, orgName: string) {
   return prisma.pullRequest.upsert({
     where: { githubPrId: pr.id },
     create: {
@@ -363,7 +362,7 @@ async function createOrUpdatePullRequest(pr: GitHubPullRequest, repoId: string, 
       openedAt: new Date(pr.created_at),
       mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
       closedAt: pr.closed_at ? new Date(pr.closed_at) : null,
-      url: env.GITHUB_ORG ? `https://github.com/${env.GITHUB_ORG}/${pr.repository}/pull/${pr.number}` : null,
+      url: `https://github.com/${orgName}/${pr.repository}/pull/${pr.number}`,
       linesAdded: pr.additions || 0,
       linesDeleted: pr.deletions || 0,
       commits: pr.commits || 0,
@@ -379,7 +378,7 @@ async function createOrUpdatePullRequest(pr: GitHubPullRequest, repoId: string, 
       openedAt: new Date(pr.created_at),
       mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
       closedAt: pr.closed_at ? new Date(pr.closed_at) : null,
-      url: env.GITHUB_ORG ? `https://github.com/${env.GITHUB_ORG}/${pr.repository}/pull/${pr.number}` : null,
+      url: `https://github.com/${orgName}/${pr.repository}/pull/${pr.number}`,
       linesAdded: pr.additions || 0,
       linesDeleted: pr.deletions || 0,
       commits: pr.commits || 0,
@@ -524,6 +523,7 @@ const worker = {
 
       const event = request.headers.get('x-github-event');
       const data = JSON.parse(payload);
+      const orgName = data.repository.owner.login;
 
       // Process the webhook event
       switch (event) {
@@ -533,7 +533,7 @@ const worker = {
           const repoId = data.repository.id.toString();
           
           // Get or create team
-          const team = await getOrCreateTeam(data.repository.owner.id, env.GITHUB_ORG);
+          const team = await getOrCreateTeam(data.repository.owner.id, orgName);
           
           // Get or create repo
           const repo = await getOrCreateRepo(
@@ -545,7 +545,7 @@ const worker = {
 
           // Process each commit
           for (const commit of data.commits) {
-            const commitDetails = await fetchCommitDetails(env.GITHUB_ORG, repoName, commit.id);
+            const commitDetails = await fetchCommitDetails(orgName, repoName, commit.id);
             if (!commitDetails?.author?.id) continue;
 
             const contributor = await getOrCreateContributor(
@@ -555,7 +555,7 @@ const worker = {
               commitDetails.author.name || commitDetails.author.username || 'Unknown User'
             );
 
-            await createCommit(commitDetails, repo.id, contributor.id, env);
+            await createCommit(commitDetails, repo.id, contributor.id, orgName);
             
             // Update monthly stats
             await updateMonthStats(team.id, new Date(commitDetails.timestamp), [commitDetails]);
@@ -569,7 +569,7 @@ const worker = {
           const repoId = data.repository.id.toString();
           
           // Get or create team
-          const team = await getOrCreateTeam(data.repository.owner.id, env.GITHUB_ORG);
+          const team = await getOrCreateTeam(data.repository.owner.id, orgName);
           
           // Get or create repo
           const repo = await getOrCreateRepo(
@@ -579,7 +579,7 @@ const worker = {
             data.repository.html_url
           );
 
-          const prDetails = await fetchPullRequestDetails(env.GITHUB_ORG, repoName, data.pull_request.number);
+          const prDetails = await fetchPullRequestDetails(orgName, repoName, data.pull_request.number);
           if (!prDetails?.user?.id) break;
 
           const contributor = await getOrCreateContributor(
@@ -590,7 +590,7 @@ const worker = {
             prDetails.user.avatar_url
           );
 
-          await createOrUpdatePullRequest(prDetails, repo.id, contributor.id, env);
+          await createOrUpdatePullRequest(prDetails, repo.id, contributor.id, orgName);
           
           // Update monthly stats
           await updateMonthStats(team.id, new Date(prDetails.created_at), [], prDetails);
