@@ -1,5 +1,4 @@
 import { PrismaClient, EventType, PrStatus } from '@prisma/client';
-import crypto from 'crypto';
 import { calculateContributorScores as _calculateContributorScores } from '../scripts/utils/calculate-scores.js';
 import { Octokit } from '@octokit/rest';
 
@@ -55,11 +54,28 @@ interface GitHubPullRequest {
   review_comments: number;
 }
 
-// Verify GitHub webhook signature
-const verifySignature = (payload: string, signature: string, secret: string) => {
-  const hmac = crypto.createHmac('sha256', secret);
-  const digest = 'sha256=' + hmac.update(payload).digest('hex');
-  return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(signature));
+// Verify GitHub webhook signature using Web Crypto API
+const verifySignature = async (payload: string, signature: string, secret: string) => {
+  const encoder = new TextEncoder();
+  const key = await crypto.subtle.importKey(
+    'raw',
+    encoder.encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign']
+  );
+  
+  const signedMessage = await crypto.subtle.sign(
+    'HMAC',
+    key,
+    encoder.encode(payload)
+  );
+  
+  const expectedSignature = 'sha256=' + Array.from(new Uint8Array(signedMessage))
+    .map(b => b.toString(16).padStart(2, '0'))
+    .join('');
+  
+  return expectedSignature === signature;
 };
 
 // Get or create a contributor
@@ -517,7 +533,7 @@ const worker = {
       const payload = await request.text();
       const signature = request.headers.get('x-hub-signature-256') || '';
 
-      if (!verifySignature(payload, signature, env.GITHUB_WEBHOOK_SECRET)) {
+      if (!await verifySignature(payload, signature, env.GITHUB_WEBHOOK_SECRET)) {
         return new Response('Invalid signature', { status: 401 });
       }
 
