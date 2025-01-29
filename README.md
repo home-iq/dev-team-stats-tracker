@@ -65,14 +65,19 @@ To develop and test the webhook functionality locally, we use Wrangler (Cloudfla
 
 ### Setup Wrangler
 
-1. Install dependencies (includes Wrangler and ngrok):
+1. Install project dependencies:
    ```bash
    npm install
    ```
 
-2. Create a `.dev.vars` file in your project root with your environment variables
+2. Install Wrangler globally:
+   ```bash
+   npm install -g wrangler
+   ```
 
-3. Start the development server:
+3. Create a `.dev.vars` file in your project root with your environment variables
+
+4. Start the development server:
    ```bash
    npm run dev:wrangler
    ```
