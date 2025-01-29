@@ -222,69 +222,85 @@ async function fetchRepositories() {
 // Fetch commits for a repository in a given month
 async function fetchMonthlyCommits(repo, startDate, endDate) {
   const failedCommits = [];
-  const commits = await octokit.paginate(octokit.repos.listCommits, {
-    owner: GITHUB_ORG,
-    repo: repo.name,
-    since: startDate.toISOString(),
-    until: endDate.toISOString(),
-    per_page: 100
-  });
-
-  // Fetch detailed commit data for each commit
-  const detailedCommits = await Promise.all(
-    commits.map(async commit => {
-      // Try up to 3 times for each commit
-      for (let attempt = 0; attempt < 3; attempt++) {
-        try {
-          const { data: fullCommit } = await octokit.repos.getCommit({
-            owner: GITHUB_ORG,
-            repo: repo.name,
-            ref: commit.sha
-          });
-          return {
-            sha: commit.sha,
-            message: commit.commit.message,
-            author: {
-              id: commit.author?.id,
-              login: commit.author?.login,
-              name: commit.commit.author.name,
-              avatar_url: commit.author?.avatar_url
-            },
-            date: commit.commit.author.date,
-            stats: {
-              additions: fullCommit.stats?.additions || 0,
-              deletions: fullCommit.stats?.deletions || 0
-            }
-          };
-        } catch (error) {
-          if (attempt === 2) { // Last attempt failed
-            failedCommits.push({
-              sha: commit.sha,
-              repo: repo.name,
-              error: error.message,
-              author: commit.author?.login || 'unknown',
-              command: `gh api /repos/${GITHUB_ORG}/${repo.name}/commits/${commit.sha}`
-            });
-            await log(`RETRY_COMMIT|${repo.name}|${commit.sha}|${commit.author?.login || 'unknown'}|${error.message}`, 'error');
-            return null;
-          }
-          // Wait before retrying
-          await setTimeout(RETRY_DELAY);
-        }
+  try {
+    const commits = await octokit.paginate(octokit.repos.listCommits, {
+      owner: GITHUB_ORG,
+      repo: repo.name,
+      since: startDate.toISOString(),
+      until: endDate.toISOString(),
+      per_page: 100
+    }).catch(error => {
+      // Handle empty repositories or other 409 conflicts
+      if (error.status === 409) {
+        console.log(chalk.yellow(`Skipping ${repo.name} - Repository is empty or inaccessible`));
+        return [];
       }
-    })
-  );
+      throw error;
+    });
 
-  const successfulCommits = detailedCommits.filter(Boolean);
-  if (failedCommits.length > 0) {
-    await log(`\nFailed to fetch ${failedCommits.length} commits in ${repo.name} after 3 attempts:`, 'error');
-    for (const failed of failedCommits) {
-      await log(`FAILED_COMMIT|${failed.repo}|${failed.sha}|${failed.author}|${failed.error}`, 'error');
-      await log(`To retry: ${failed.command}`, 'error');
+    // If no commits, return early
+    if (!commits.length) {
+      return [];
     }
-  }
 
-  return successfulCommits;
+    // Fetch detailed commit data for each commit
+    const detailedCommits = await Promise.all(
+      commits.map(async commit => {
+        // Try up to 3 times for each commit
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            const { data: fullCommit } = await octokit.repos.getCommit({
+              owner: GITHUB_ORG,
+              repo: repo.name,
+              ref: commit.sha
+            });
+            return {
+              sha: commit.sha,
+              message: commit.commit.message,
+              author: {
+                id: commit.author?.id,
+                login: commit.author?.login,
+                name: commit.commit.author.name,
+                avatar_url: commit.author?.avatar_url
+              },
+              date: commit.commit.author.date,
+              stats: {
+                additions: fullCommit.stats?.additions || 0,
+                deletions: fullCommit.stats?.deletions || 0
+              }
+            };
+          } catch (error) {
+            if (attempt === 2) { // Last attempt failed
+              failedCommits.push({
+                sha: commit.sha,
+                repo: repo.name,
+                error: error.message,
+                author: commit.author?.login || 'unknown',
+                command: `gh api /repos/${GITHUB_ORG}/${repo.name}/commits/${commit.sha}`
+              });
+              await log(`RETRY_COMMIT|${repo.name}|${commit.sha}|${commit.author?.login || 'unknown'}|${error.message}`, 'error');
+              return null;
+            }
+            // Wait before retrying
+            await setTimeout(RETRY_DELAY);
+          }
+        }
+      })
+    );
+
+    const successfulCommits = detailedCommits.filter(Boolean);
+    if (failedCommits.length > 0) {
+      await log(`\nFailed to fetch ${failedCommits.length} commits in ${repo.name} after 3 attempts:`, 'error');
+      for (const failed of failedCommits) {
+        await log(`FAILED_COMMIT|${failed.repo}|${failed.sha}|${failed.author}|${failed.error}`, 'error');
+        await log(`To retry: ${failed.command}`, 'error');
+      }
+    }
+
+    return successfulCommits;
+  } catch (error) {
+    throw error;
+  }
 }
 
 // Fetch pull requests for a repository in a given month
@@ -506,7 +522,33 @@ async function processMonth(date, progressState, teamId) {
       for (const commit of commits) {
         if (!commit.author?.id) continue;
 
-        const contributor = await getOrCreateContributor(teamId, commit.author);
+        // Special handling for lovable-dev[bot] commits in dev-team-stats-tracker
+        let authorToUse = commit.author;
+        if (commit.author.login === 'lovable-dev[bot]' && repo.name === 'dev-team-stats-tracker') {
+          // Find jonthewayne's contributor record
+          const jonthewayne = await prisma.contributor.findFirst({
+            where: {
+              teamId,
+              githubLogin: 'jonthewayne'
+            }
+          });
+          
+          if (jonthewayne) {
+            authorToUse = {
+              id: jonthewayne.githubUserId,
+              login: 'jonthewayne',
+              name: jonthewayne.name,
+              avatar_url: jonthewayne.avatarUrl
+            };
+          }
+        }
+
+        // Skip lovable-dev[bot] for other repositories
+        if (commit.author.login === 'lovable-dev[bot]' && repo.name !== 'dev-team-stats-tracker') {
+          continue;
+        }
+
+        const contributor = await getOrCreateContributor(teamId, authorToUse);
         if (contributor) {
           await createCommit(commit, dbRepo.id, contributor.id, repo.name);
 
@@ -517,10 +559,11 @@ async function processMonth(date, progressState, teamId) {
           repoStats.linesRemoved += commit.stats?.deletions || 0;
 
           // Update contributor stats
-          const userId = commit.author.id.toString();
+          const userId = authorToUse.id.toString();
           if (!monthStats.contributors[userId]) {
             monthStats.contributors[userId] = {
-              login: commit.author.login,
+              login: authorToUse.login,
+              githubUserId: userId,
               totalCommits: 0,
               totalPrs: 0,
               mergedPrs: 0,
@@ -550,6 +593,11 @@ async function processMonth(date, progressState, teamId) {
       // Process pull requests
       for (const pr of pullRequests) {
         if (!pr.user?.id) continue;
+
+        // Skip lovable-dev[bot] PRs entirely
+        if (pr.user.login === 'lovable-dev[bot]') {
+          continue;
+        }
 
         const contributor = await getOrCreateContributor(teamId, pr.user);
         if (contributor) {
@@ -735,6 +783,16 @@ async function printMonthSummary(monthStats, dbStats) {
     `${formatNumber(existingContributors)} existing`);
   lines.push(`└── API Calls Remaining: ${formatNumber(dbStats.apiCallsRemaining)}`);
 
+  lines.push('\nDatabase Summary:');
+  lines.push(`├── New Records Created:`);
+  lines.push(`│   ├── Commits: ${formatNumber(dbStats.total.newCommits)}`);
+  lines.push(`│   ├── Pull Requests: ${formatNumber(dbStats.total.newPRs)}`);
+  lines.push(`│   └── Contributors: ${formatNumber(dbStats.total.newContributors)}`);
+  lines.push(`└── Existing Records Updated:`);
+  lines.push(`    ├── Commits: ${formatNumber(dbStats.total.existingCommits)}`);
+  lines.push(`    ├── Pull Requests: ${formatNumber(dbStats.total.existingPRs)}`);
+  lines.push(`    └── Contributors: ${formatNumber(existingContributors)}`);
+
   lines.push('\nMonth Stats:');
   
   lines.push('Overall:');
@@ -771,12 +829,12 @@ async function printMonthSummary(monthStats, dbStats) {
   // Print to console with colors
   lines.forEach(line => {
     if (line.startsWith('\n')) console.log('');
-    if (line.includes('Statistics:') || line.includes('Activity:') || line.includes('Overall:')) {
+    if (line.includes('Statistics:') || line.includes('Activity:') || line.includes('Overall:') || line.includes('Summary:')) {
       console.log(chalk.cyan(line));
-    } else if (line.match(/^[^├└]+$/)) {
+    } else if (line.match(/^[^├└│]/)) {
       console.log(chalk.yellow(line));
     } else {
-      console.log(chalk.gray(line.includes('└──') ? line : line.replace('├──', '├──')));
+      console.log(chalk.gray(line));
     }
   });
 
@@ -1153,34 +1211,35 @@ async function main() {
         spinner.succeed(`Completed processing ${monthStr}`);
         await updateMonthStats(teamId, currentMonth, monthStats);
         
-        // Get existing commits and PRs from database
-        const existingCommits = new Set((await prisma.commit.findMany({
-          where: { 
-            repoId: { in: Object.keys(monthStats.repositories) },
-            committedAt: {
-              gte: startOfMonth(currentMonth),
-              lt: startOfMonth(addMonths(currentMonth, 1))
-            }
-          },
-          select: { githubCommitId: true }
-        })).map(c => c.githubCommitId));
+        // Get list of all commit IDs and PR IDs we processed this month
+        const monthCommitIds = commits.map(c => c.sha);
+        const monthPrIds = pullRequests.map(pr => pr.number.toString());
 
-        const existingPRs = new Set((await prisma.pullRequest.findMany({
-          where: { 
-            repoId: { in: Object.keys(monthStats.repositories) },
-            openedAt: {
-              gte: startOfMonth(currentMonth),
-              lt: startOfMonth(addMonths(currentMonth, 1))
-            }
+        // Single query to find which commits already exist
+        const existingCommitRecords = await prisma.commit.findMany({
+          where: {
+            githubCommitId: { in: monthCommitIds }
           },
-          select: { githubPrId: true }
-        })).map(pr => pr.githubPrId));
+          select: {
+            githubCommitId: true,
+            repoId: true
+          }
+        });
 
-        // For contributors, we still want to check all existing ones since they persist across months
-        const existingContributors = new Set((await prisma.contributor.findMany({
-          where: { teamId },
-          select: { githubUserId: true }
-        })).map(c => c.githubUserId));
+        // Single query to find which PRs already exist
+        const existingPrRecords = await prisma.pullRequest.findMany({
+          where: {
+            githubPrId: { in: monthPrIds }
+          },
+          select: {
+            githubPrId: true,
+            repoId: true
+          }
+        });
+
+        // Create lookup maps for faster checking
+        const existingCommits = new Map(existingCommitRecords.map(c => [c.githubCommitId, c.repoId]));
+        const existingPRs = new Map(existingPrRecords.map(pr => [pr.githubPrId, pr.repoId]));
         
         // Initialize dbStats with default values
         const dbStats = {
@@ -1195,7 +1254,7 @@ async function main() {
         };
         
         // Add stats for each repository
-        Object.entries(monthStats.repositories).forEach(([repoId, stats]) => {
+        await Promise.all(Object.entries(monthStats.repositories).map(async ([repoId, stats]) => {
           // Count new vs existing commits for this repo
           const repoCommits = commits.filter(c => c.repository === repoId);
           const newCommitsCount = repoCommits.filter(c => !existingCommits.has(c.sha)).length;
@@ -1203,15 +1262,24 @@ async function main() {
 
           // Count new vs existing PRs for this repo
           const repoPRs = pullRequests.filter(pr => pr.repository === repoId);
-          const newPRsCount = repoPRs.filter(pr => !existingPRs.has(pr.number)).length;
+          const newPRsCount = repoPRs.filter(pr => !existingPRs.has(pr.number.toString())).length;
           const existingPRsCount = repoPRs.length - newPRsCount;
 
-          // Count new vs existing contributors for this repo
+          // Get unique contributors for this repo
           const repoContributors = new Set([
             ...repoCommits.map(c => c.author?.id?.toString()).filter(Boolean),
             ...repoPRs.map(pr => pr.user?.id?.toString()).filter(Boolean)
           ]);
-          const newContributorsCount = Array.from(repoContributors).filter(id => !existingContributors.has(id)).length;
+
+          // Query to find existing contributors
+          const newContributorsCount = repoContributors.size > 0 ? await prisma.contributor.count({
+            where: {
+              AND: [
+                { teamId },
+                { githubUserId: { in: Array.from(repoContributors) } }
+              ]
+            }
+          }).then(count => repoContributors.size - count) : 0;
 
           dbStats[repoId] = {
             newCommits: newCommitsCount,
@@ -1226,14 +1294,24 @@ async function main() {
           dbStats.total.existingCommits += existingCommitsCount;
           dbStats.total.newPRs += newPRsCount;
           dbStats.total.existingPRs += existingPRsCount;
-        });
+        }));
 
         // Calculate total new contributors
         const allContributors = new Set([
           ...Object.values(monthStats.contributors).map(c => c.githubUserId)
         ]);
-        dbStats.total.newContributors = Array.from(allContributors)
-          .filter(id => !existingContributors.has(id)).length;
+        
+        if (allContributors.size > 0) {
+          const existingContributorsCount = await prisma.contributor.count({
+            where: {
+              AND: [
+                { teamId },
+                { githubUserId: { in: Array.from(allContributors) } }
+              ]
+            }
+          });
+          dbStats.total.newContributors = allContributors.size - existingContributorsCount;
+        }
 
         await printMonthSummary(monthStats, dbStats);
 
