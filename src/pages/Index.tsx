@@ -7,6 +7,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Header } from "@/components/dashboard/Header";
 import { MonthSelector } from "@/components/dashboard/MonthSelector";
 import { OverallStats } from "@/components/dashboard/OverallStats";
+import { MonthObjectKeys } from "@/components/dashboard/MonthObjectKeys";
 import { useNavigate, useParams } from "react-router-dom";
 import { getSortedContributors } from "@/data/contributors";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
@@ -185,6 +186,7 @@ const Index = () => {
                     key="content"
                   >
                     <OverallStats />
+                    <MonthObjectKeys />
                     <motion.div 
                       className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
                       variants={container}
