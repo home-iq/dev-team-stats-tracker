@@ -59,7 +59,7 @@ The webhook will automatically:
 - Update monthly statistics
 - Track contribution scores
 
-## Local Development with Cloudflare Pages Functions
+## Local Development with Cloudflare Pages Functions 
 
 To develop and test the webhook functionality locally, we use Wrangler (Cloudflare's CLI tool) and ngrok for tunneling.
 
