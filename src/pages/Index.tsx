@@ -10,6 +10,7 @@ import { OverallStats } from "@/components/dashboard/OverallStats";
 import { useNavigate, useParams } from "react-router-dom";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { supabase } from "@/lib/supabase";
+import { Badge } from "@/components/ui/badge";
 
 interface Contributor {
   login?: string;
@@ -22,6 +23,11 @@ interface Contributor {
   linesRemoved: number;
   contributionScore: number;
   rank?: number;
+}
+
+interface ContributorLastActive {
+  githubUserId: string;
+  updatedAt: string;
 }
 
 interface Month {
@@ -41,6 +47,18 @@ interface Month {
     contributors: Record<string, Contributor>;
     object_keys: string[];
   };
+}
+
+interface ContributorData {
+  id: string;
+  name: string;
+  githubUserId: string;
+  githubLogin: string;
+  avatarUrl?: string;
+  cursorEmail?: string;
+  teamId: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 const Index = () => {
@@ -74,6 +92,11 @@ const Index = () => {
     return new Date();
   });
 
+  // Track all known contributor IDs from Month stats
+  const [knownContributorIds, setKnownContributorIds] = useState<Set<string>>(new Set());
+  // Store full contributor records from database
+  const [contributorRecords, setContributorRecords] = useState<Record<string, ContributorData>>({});
+
   // Get the current active month based on the view
   const currentMonth = contributorId ? contributorMonth : dashboardMonth;
   const formattedMonth = format(currentMonth, "MMMM yyyy");
@@ -81,62 +104,88 @@ const Index = () => {
 
   // Fetch all months data at once
   useEffect(() => {
-    const fetchAllMonthsData = async () => {
-      // Only show loading states if we don't have any data yet
+    const fetchAllData = async () => {
+      // Only show loading on initial data load
       if (monthsData.length === 0) {
         setIsLoading(true);
         setShowContent(false);
       }
 
       try {
+        // Fetch all months
         const { data, error } = await supabase
           .from('Month')
           .select('*')
           .order('date', { ascending: false });
 
-        if (error) {
-          throw error;
+        if (error) throw error;
+        if (!data) return;
+
+        setMonthsData(data);
+        setAvailableMonths(data.map(m => new Date(m.date)));
+        
+        // Get unique contributor IDs from all months
+        const newContributorIds = new Set<string>();
+        data.forEach(month => {
+          Object.entries(month.stats.contributors).forEach(([_, contributor]: [string, Contributor]) => {
+            if (contributor.githubUserId) {
+              newContributorIds.add(contributor.githubUserId);
+            }
+          });
+        });
+        
+        // Fetch ALL contributors at once
+        const { data: contributorData, error: contributorError } = await supabase
+          .from('Contributor')
+          .select('*')
+          .returns<ContributorData[]>();
+
+        if (contributorError) throw contributorError;
+        if (contributorData) {
+          // Store all contributor data
+          const contributors = contributorData.reduce((acc, curr) => {
+            acc[curr.githubUserId] = curr;
+            return acc;
+          }, {} as Record<string, ContributorData>);
+          
+          setContributorRecords(contributors);
+          setKnownContributorIds(new Set(contributorData.map(c => c.githubUserId)));
         }
 
-        if (data) {
-          setMonthsData(data);
-          setAvailableMonths(data.map(m => new Date(m.date)));
-          
-          // Set initial month data
-          const monthStart = startOfMonth(currentMonth);
-          const initialMonthData = data.find(
-            m => format(new Date(m.date), "yyyy-MM") === format(monthStart, "yyyy-MM")
-          );
-          
-          if (initialMonthData) {
-            setCurrentMonthData(initialMonthData);
-          } else {
-            setCurrentMonthData(null);
-          }
+        // Set initial month data
+        const monthStart = startOfMonth(currentMonth);
+        const initialMonthData = data.find(
+          m => format(new Date(m.date), "yyyy-MM") === format(monthStart, "yyyy-MM")
+        );
+        
+        if (initialMonthData) {
+          setCurrentMonthData(initialMonthData);
+        } else {
+          setCurrentMonthData(null);
+        }
 
-          // Only show loading animation on initial load
-          if (monthsData.length === 0) {
-            const loadingEndTime = Math.max(1200 - (Date.now() - startTime), 0);
+        // Only show loading animation on initial load
+        if (monthsData.length === 0) {
+          const loadingEndTime = Math.max(1200 - (Date.now() - startTime), 0);
+          setTimeout(() => {
+            setIsLoading(false);
             setTimeout(() => {
-              setIsLoading(false);
-              setTimeout(() => {
-                setShowContent(true);
-              }, 300);
-            }, loadingEndTime);
-          }
+              setShowContent(true);
+            }, 300);
+          }, loadingEndTime);
         }
       } catch (error) {
-        console.error('Error fetching months data:', error);
+        console.error('Error fetching data:', error);
         setIsLoading(false);
         setShowContent(true);
       }
     };
 
     const startTime = Date.now();
-    fetchAllMonthsData();
-  }, []);
+    fetchAllData();
+  }, []); // Only run on mount
 
-  // Update current month data when month changes
+  // Remove the fetchSingleContributor effect since we load all data upfront
   useEffect(() => {
     const monthStart = startOfMonth(currentMonth);
     const monthData = monthsData.find(
@@ -309,6 +358,7 @@ const Index = () => {
                                 linesOfCode: (contributor.linesAdded || 0) + (contributor.linesRemoved || 0),
                                 contributionScore: contributor.contributionScore || 0,
                                 rank: index + 1,
+                                lastActive: contributorRecords[contributor.githubUserId || login]?.updatedAt
                               }}
                               onClick={() => {
                                 setContributorMonth(dashboardMonth);
@@ -339,6 +389,18 @@ const Index = () => {
               onPreviousMonth={handlePreviousMonth}
               onNextMonth={handleNextMonth}
               availableMonths={availableMonths}
+              lastActive={(() => {
+                // Find the contributor record by matching githubLogin
+                const contributor = Object.values(contributorRecords).find(
+                  record => record.githubLogin === contributorId
+                );
+                console.log('ContributorDetail Debug:', {
+                  contributorId,
+                  foundContributor: contributor,
+                  lastActive: contributor?.updatedAt
+                });
+                return contributor?.updatedAt;
+              })()}
               onBack={() => {
                 const dashboardMonthStr = format(dashboardMonth, "MMMM-yyyy").toLowerCase();
                 if (format(dashboardMonth, "yyyy-MM") !== format(new Date(), "yyyy-MM")) {

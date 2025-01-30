@@ -49,6 +49,7 @@ interface ContributorDetailProps {
   onNextMonth: () => void;
   onBack: () => void;
   availableMonths: Date[];
+  lastActive?: string;
 }
 
 export const ContributorDetail = ({ 
@@ -58,7 +59,8 @@ export const ContributorDetail = ({
   monthData,
   onPreviousMonth,
   onNextMonth,
-  availableMonths
+  availableMonths,
+  lastActive
 }: ContributorDetailProps) => {
   const isMobile = useIsMobile();
 
@@ -110,6 +112,17 @@ export const ContributorDetail = ({
   const avatar_url = `https://avatars.githubusercontent.com/u/${contributor.githubUserId || githubUserId}`;
   const linesOfCode = (contributor.linesAdded || 0) + (contributor.linesRemoved || 0);
 
+  const formattedLastActive = lastActive 
+    ? (() => {
+        const utcDate = new Date(lastActive + 'Z'); // Explicitly mark as UTC
+        return formatInTimeZone(
+          utcDate,
+          'America/New_York',
+          'MMM d, h:mm a \'EST\''
+        );
+      })()
+    : 'Unknown';
+
   return (
     <motion.div
       initial={{ opacity: 0, x: 20 }}
@@ -120,24 +133,33 @@ export const ContributorDetail = ({
     >
       <div className="mb-8">
         <div className={`flex ${isMobile ? 'flex-col' : 'flex-row justify-between items-center'}`}>
-          <div className="flex items-center gap-6">
-            <div className="flex items-center gap-4">
-              <Button 
-                variant="ghost" 
-                onClick={onBack}
-                size="icon" 
-                className="hover:bg-white/10 cursor-pointer focus:ring-2 focus:ring-white/20"
-              >
-                <ChevronLeft className="h-4 w-4" />
-              </Button>
-              <Avatar className="w-16 h-16 border-2 border-primary/20">
-                <img src={avatar_url} alt={contributor.login || login} className="object-cover" />
-              </Avatar>
-              <div>
-                <h2 className="text-3xl font-bold mb-0.5 text-gradient">{contributor.login || login}</h2>
-                <p className="text-sm text-muted-foreground">
-                  Contribution Score: <span className="font-semibold">{contributor.contributionScore}</span>
-                </p>
+          <div className="flex items-center">
+            <Button 
+              variant="ghost" 
+              onClick={onBack}
+              size="icon" 
+              className="mr-1 hover:bg-white/10 cursor-pointer focus:ring-2 focus:ring-white/20"
+            >
+              <ChevronLeft className="h-4 w-4" />
+            </Button>
+            <Avatar className="w-16 h-16 border-2 border-primary/20">
+              <img src={avatar_url} alt={contributor.login || login} className="object-cover" />
+            </Avatar>
+            <div className="ml-4">
+              <h2 className="text-3xl font-bold mb-1.5 text-gradient">{contributor.login || login}</h2>
+              <div className="space-y-0.5">
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Last Active</span>
+                  <Badge variant="secondary" className="neo-blur">
+                    {formattedLastActive}
+                  </Badge>
+                </div>
+                <div className="flex items-center gap-2">
+                  <span className="text-sm text-muted-foreground">Contribution Score</span>
+                  <Badge variant="secondary" className="neo-blur">
+                    {contributor.contributionScore}
+                  </Badge>
+                </div>
               </div>
             </div>
           </div>
@@ -220,10 +242,10 @@ export const ContributorDetail = ({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-6">
-                      <div className="flex items-center shrink-0">
-                        <span className="text-base font-bold text-emerald-400 w-[4.5rem] text-right">+{activity.linesAdded.toLocaleString()}</span>
-                        <span className="text-base font-bold text-red-400 w-[4.5rem] text-right -ml-1">-{activity.linesRemoved.toLocaleString()}</span>
+                    <div className="flex items-center gap-4">
+                      <div className="flex flex-col items-end shrink-0">
+                        <span className="text-sm font-bold text-emerald-400">+{activity.linesAdded.toLocaleString()}</span>
+                        <span className="text-sm font-bold text-red-400">-{activity.linesRemoved.toLocaleString()}</span>
                       </div>
 
                       <div className="flex flex-col items-end shrink-0">
@@ -252,6 +274,9 @@ export const ContributorDetail = ({
                     </div>
                     <p className="text-sm text-muted-foreground truncate flex-1">{activity.summary}</p>
                     <div className="flex items-center gap-3 shrink-0">
+                      <Badge variant="secondary" className="neo-blur text-xs">
+                        Score: {Math.floor(Math.random() * 100)}
+                      </Badge>
                       <div className="flex items-center shrink-0">
                         <span className="text-lg font-bold text-emerald-400 w-[5rem] text-right">+{activity.linesAdded.toLocaleString()}</span>
                         <span className="text-lg font-bold text-red-400 w-[5rem] text-right -ml-1">-{activity.linesRemoved.toLocaleString()}</span>

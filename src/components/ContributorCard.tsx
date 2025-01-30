@@ -3,6 +3,8 @@ import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { GitCommit, GitPullRequest, Star, Code2 } from "lucide-react";
 import { motion } from "framer-motion";
+import { parseISO } from "date-fns";
+import { formatInTimeZone } from 'date-fns-tz';
 
 interface ContributorCardProps {
   contributor: {
@@ -15,14 +17,29 @@ interface ContributorCardProps {
     linesOfCode: number;
     contributionScore: number;
     rank: number;
+    lastActive?: string;
   };
   onClick: () => void;
 }
 
 export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) => {
-  const truncatedLogin = contributor.login.length > 14 
-    ? `${contributor.login.slice(0, 14)}...` 
+  const truncatedLogin = contributor.login.length > 12 
+    ? `${contributor.login.slice(0, 12)}...` 
     : contributor.login;
+
+  const formattedLastActive = contributor.lastActive 
+    ? (() => {
+        const utcDate = new Date(contributor.lastActive + 'Z'); // Explicitly mark as UTC
+        console.log('UTC timestamp:', utcDate.toISOString());
+        const formatted = formatInTimeZone(
+          utcDate,
+          'America/New_York',
+          'MMM d, h:mm a \'EST\''
+        );
+        console.log('Formatted in EST:', formatted);
+        return formatted;
+      })()
+    : 'Unknown';
 
   return (
     <motion.div
@@ -67,12 +84,19 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
           </div>
         </div>
 
+        <div className="flex justify-between items-center mb-4">
+          <span className="text-sm text-muted-foreground">Last Active</span>
+          <Badge variant="secondary" className="neo-blur">
+            {formattedLastActive}
+          </Badge>
+        </div>
+
         <div className="mt-auto pt-4 border-t border-white/10">
-          <div className="text-sm text-muted-foreground">
-            Contribution Score
-            <span className="float-right font-semibold text-foreground">
+          <div className="text-sm text-muted-foreground flex items-center justify-between">
+            <span>Contribution Score</span>
+            <Badge variant="secondary" className="neo-blur">
               {contributor.contributionScore}
-            </span>
+            </Badge>
           </div>
         </div>
       </Card>
