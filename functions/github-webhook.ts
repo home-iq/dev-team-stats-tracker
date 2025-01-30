@@ -1,57 +1,148 @@
-import { PrismaClient, EventType, PrStatus } from '@prisma/client';
-import { calculateContributorScores as _calculateContributorScores } from '../scripts/utils/calculate-scores.js';
-import { Octokit } from '@octokit/rest';
+import { createClient } from '@supabase/supabase-js'
+import { Octokit } from '@octokit/rest'
+import { calculateContributorScores as _calculateContributorScores } from '../scripts/utils/calculate-scores.js'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
-const prisma = new PrismaClient();
+// Define our own Json type since Supabase's isn't exported
+type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
 
-export interface Env {
-  GITHUB_WEBHOOK_SECRET: string;
-  GITHUB_KEY: string;
+// Define PR status type
+enum PrStatus {
+  OPEN = 'OPEN',
+  CLOSED = 'CLOSED',
+  MERGED = 'MERGED'
 }
 
+export interface Env {
+  GITHUB_WEBHOOK_SECRET: string
+  GITHUB_KEY: string
+  PUBLIC_SUPABASE_URL: string
+  SUPABASE_SERVICE_ROLE_KEY: string
+}
+
+// Types for our database schema
+interface Database {
+  public: {
+    Tables: {
+      team: {
+        Row: {
+          id: string
+          name: string
+          github_org_id: bigint
+          github_org_name: string | null
+          created_at: string
+          updated_at: string
+        }
+      }
+      repo: {
+        Row: {
+          id: string
+          name: string
+          github_repo_id: string
+          url: string | null
+          team_id: string
+          created_at: string
+          updated_at: string
+        }
+      }
+      contributor: {
+        Row: {
+          id: string
+          name: string
+          github_user_id: string
+          github_login: string
+          avatar_url: string | null
+          cursor_email: string | null
+          team_id: string
+          created_at: string
+          updated_at: string
+        }
+      }
+      commit: {
+        Row: {
+          id: string
+          github_commit_id: string
+          message: string
+          lines_added: number
+          lines_deleted: number
+          authored_at: string | null
+          committed_at: string
+          url: string | null
+          repo_id: string
+          author_id: string
+          created_at: string
+          updated_at: string
+        }
+      }
+      month: {
+        Row: {
+          id: string
+          date: string
+          team_id: string
+          stats: Json
+          created_at: string
+          updated_at: string
+        }
+      }
+    }
+  }
+}
+
+// Existing interfaces for GitHub data
 interface GitHubCommit {
-  id: string;
-  sha: string;
-  message: string;
-  repository: string;
+  id: string
+  sha: string
+  message: string
+  repository: string
   author: {
-    id: number;
-    username: string;
-    name: string;
-    avatar_url?: string;
-  };
-  timestamp: string;
+    id: number
+    username: string
+    name: string
+    avatar_url?: string
+  }
+  timestamp: string
   stats?: {
-    additions: number;
-    deletions: number;
-  };
+    additions: number
+    deletions: number
+  }
 }
 
 interface GitHubPullRequest {
-  id: number;
-  number: number;
-  title: string;
-  body?: string;
-  state: string;
-  draft: boolean;
-  merged: boolean;
-  created_at: string;
-  merged_at: string | null;
-  closed_at: string | null;
-  head: { ref: string };
-  base: { ref: string };
-  repository: string;
+  id: number
+  number: number
+  title: string
+  body?: string
+  state: string
+  draft: boolean
+  merged: boolean
+  created_at: string
+  merged_at: string | null
+  closed_at: string | null
+  head: { ref: string }
+  base: { ref: string }
+  repository: string
   user: {
-    id: number;
-    login: string;
-    name?: string;
-    avatar_url?: string;
-  };
-  additions: number;
-  deletions: number;
-  commits: number;
-  comments: number;
-  review_comments: number;
+    id: number
+    login: string
+    name?: string
+    avatar_url?: string
+  }
+  additions: number
+  deletions: number
+  commits: number
+  comments: number
+  review_comments: number
+}
+
+// Helper function to check if an error is a Supabase error
+interface SupabaseError {
+  code: string
+  message: string
+  details: string
+}
+
+function isSupabaseError(err: unknown): err is SupabaseError {
+  return typeof err === 'object' && err !== null && 'code' in err && 'message' in err
 }
 
 // Verify GitHub webhook signature using Web Crypto API
@@ -79,37 +170,123 @@ const verifySignature = async (payload: string, signature: string, secret: strin
 };
 
 // Get or create a contributor
-async function getOrCreateContributor(teamId: string, githubUserId: string, login: string, name: string, avatarUrl?: string) {
-  return prisma.contributor.upsert({
-    where: { githubUserId },
-    create: { teamId, githubUserId, githubLogin: login, name, avatarUrl },
-    update: { githubLogin: login, name, avatarUrl }
-  });
+async function getOrCreateContributor(
+  supabase: ReturnType<typeof createClient<Database>>,
+  teamId: string, 
+  githubUserId: string, 
+  login: string, 
+  name: string, 
+  avatarUrl?: string
+) {
+  const { data: existing } = await supabase
+    .from('contributor')
+    .select()
+    .eq('github_user_id', githubUserId)
+    .single()
+
+  if (existing) {
+    const { data } = await supabase
+      .from('contributor')
+      .update({ 
+        github_login: login, 
+        name, 
+        avatar_url: avatarUrl 
+      })
+      .eq('github_user_id', githubUserId)
+      .select()
+      .single()
+    return data
+  }
+
+  const { data } = await supabase
+    .from('contributor')
+    .insert({
+      team_id: teamId,
+      github_user_id: githubUserId,
+      github_login: login,
+      name,
+      avatar_url: avatarUrl
+    })
+    .select()
+    .single()
+  return data
 }
 
 // Get or create a repository
-async function getOrCreateRepo(teamId: string, repoName: string, githubRepoId: string, url?: string) {
-  return prisma.repo.upsert({
-    where: { githubRepoId },
-    create: { teamId, name: repoName, githubRepoId, url },
-    update: { name: repoName, url }
-  });
+async function getOrCreateRepo(
+  supabase: ReturnType<typeof createClient<Database>>,
+  teamId: string, 
+  repoName: string, 
+  githubRepoId: string, 
+  url?: string
+) {
+  const { data: existing } = await supabase
+    .from('repo')
+    .select()
+    .eq('github_repo_id', githubRepoId)
+    .single()
+
+  if (existing) {
+    const { data } = await supabase
+      .from('repo')
+      .update({ 
+        name: repoName, 
+        url 
+      })
+      .eq('github_repo_id', githubRepoId)
+      .select()
+      .single()
+    return data
+  }
+
+  const { data } = await supabase
+    .from('repo')
+    .insert({
+      team_id: teamId,
+      name: repoName,
+      github_repo_id: githubRepoId,
+      url
+    })
+    .select()
+    .single()
+  return data
 }
 
 // Get or create a team
-async function getOrCreateTeam(githubOrgId: number, orgName: string) {
-  return prisma.team.upsert({
-    where: { githubOrgId },
-    create: { 
-      githubOrgId: BigInt(githubOrgId),
-      githubOrgName: orgName,
-      name: orgName 
-    },
-    update: {
-      githubOrgName: orgName,
+async function getOrCreateTeam(
+  supabase: ReturnType<typeof createClient<Database>>,
+  githubOrgId: number, 
+  orgName: string
+) {
+  const { data: existing } = await supabase
+    .from('team')
+    .select()
+    .eq('github_org_id', githubOrgId)
+    .single()
+
+  if (existing) {
+    const { data } = await supabase
+      .from('team')
+      .update({ 
+        github_org_name: orgName,
+        name: orgName 
+      })
+      .eq('github_org_id', githubOrgId)
+      .select()
+      .single()
+    return data
+  }
+
+  const { data } = await supabase
+    .from('team')
+    .insert({
+      github_org_id: githubOrgId,
+      github_org_name: orgName,
       name: orgName
-    }
-  });
+    })
+    .select()
+    .single()
+  return data
 }
 
 // Helper to convert GitHub PR state to PrStatus
@@ -157,41 +334,36 @@ type JsonMonthStats = {
 };
 
 // Update monthly stats for a given month
-async function updateMonthStats(teamId: string, date: Date, newCommits: GitHubCommit[] = [], newPullRequest: GitHubPullRequest | null = null) {
+async function updateMonthStats(
+  supabase: SupabaseClient<Database>,
+  teamId: string, 
+  date: Date, 
+  newCommits: GitHubCommit[] = [], 
+  newPullRequest: GitHubPullRequest | null = null
+) {
   const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
   
   // Get or create month record with stats
-  const monthRecord = await prisma.month.upsert({
-    where: {
-      teamId_date: {
-        teamId,
-        date: startOfMonth
-      }
-    },
-    create: {
-      teamId,
-      date: startOfMonth,
-      stats: {
-        overall: {
-          totalCommits: 0,
-          totalPrs: 0,
-          mergedPrs: 0,
-          linesAdded: 0,
-          linesRemoved: 0,
-          activeContributors: 0,
-          averageContributionScore: 0
-        },
-        repositories: {},
-        contributors: {}
-      } as JsonMonthStats
-    },
-    update: {},
-    select: {
-      stats: true
-    }
-  });
+  const { data: monthRecord } = await supabase
+    .from('month')
+    .select()
+    .eq('team_id', teamId)
+    .eq('date', startOfMonth.toISOString())
+    .single();
 
-  const existingStats = monthRecord.stats as JsonMonthStats;
+  const existingStats: JsonMonthStats = monthRecord?.stats as JsonMonthStats || {
+    overall: {
+      totalCommits: 0,
+      totalPrs: 0,
+      mergedPrs: 0,
+      linesAdded: 0,
+      linesRemoved: 0,
+      activeContributors: 0,
+      averageContributionScore: 0
+    },
+    repositories: {},
+    contributors: {}
+  };
 
   // Process new commits
   for (const commit of newCommits) {
@@ -323,85 +495,109 @@ async function updateMonthStats(teamId: string, date: Date, newCommits: GitHubCo
   });
 
   // Calculate average contribution score
-  const scoreValues = Object.values(scores as { [key: string]: { score: number } }).map(s => s.score);
+  const scoreValues = Object.values(scores).map(s => s.score);
   existingStats.overall.averageContributionScore = 
     scoreValues.length > 0 ? scoreValues.reduce((a, b) => a + b) / scoreValues.length : 0;
 
   // Update the month record
-  await prisma.month.upsert({
-    where: {
-      teamId_date: {
-        teamId,
-        date: startOfMonth
-      }
-    },
-    create: {
-      teamId,
-      date: startOfMonth,
-      stats: existingStats
-    },
-    update: {
-      stats: existingStats
-    }
-  });
+  if (monthRecord) {
+    await supabase
+      .from('month')
+      .update({
+        stats: existingStats as Json,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', monthRecord.id);
+  } else {
+    await supabase
+      .from('month')
+      .insert({
+        team_id: teamId,
+        date: startOfMonth.toISOString(),
+        stats: existingStats as Json
+      });
+  }
 }
 
 // Create commit record
-async function createCommit(commit: GitHubCommit, repoId: string, authorId: string, orgName: string) {
-  return prisma.commit.create({
-    data: {
-      githubCommitId: commit.id,
+async function createCommit(
+  supabase: ReturnType<typeof createClient<Database>>,
+  commit: GitHubCommit, 
+  repoId: string, 
+  authorId: string, 
+  orgName: string
+) {
+  const { data } = await supabase
+    .from('commit')
+    .insert({
+      github_commit_id: commit.id,
       message: commit.message,
-      linesAdded: commit.stats?.additions || 0,
-      linesDeleted: commit.stats?.deletions || 0,
-      committedAt: new Date(commit.timestamp),
+      lines_added: commit.stats?.additions || 0,
+      lines_deleted: commit.stats?.deletions || 0,
+      committed_at: new Date(commit.timestamp).toISOString(),
       url: `https://github.com/${orgName}/${commit.repository}/commit/${commit.sha}`,
-      repoId: repoId,
-      authorId: authorId
-    }
-  });
+      repo_id: repoId,
+      author_id: authorId
+    })
+    .select()
+    .single()
+  return data
 }
 
 // Create or update pull request record
-async function createOrUpdatePullRequest(pr: GitHubPullRequest, repoId: string, authorId: string, orgName: string) {
-  return prisma.pullRequest.upsert({
-    where: { githubPrId: pr.id },
-    create: {
-      githubPrId: pr.id,
-      title: pr.title,
-      description: pr.body || '',
-      status: toPrStatus(pr.state, pr.merged),
-      isDraft: pr.draft,
-      isMerged: pr.merged,
-      sourceBranch: pr.head.ref,
-      targetBranch: pr.base.ref,
-      openedAt: new Date(pr.created_at),
-      mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
-      closedAt: pr.closed_at ? new Date(pr.closed_at) : null,
-      url: `https://github.com/${orgName}/${pr.repository}/pull/${pr.number}`,
-      linesAdded: pr.additions || 0,
-      linesDeleted: pr.deletions || 0,
-      commits: pr.commits || 0,
-      comments: (pr.comments || 0) + (pr.review_comments || 0),
-      reviews: pr.review_comments || 0,
-      authorId: authorId,
-      repoId: repoId
-    },
-    update: {
-      status: toPrStatus(pr.state, pr.merged),
-      isDraft: pr.draft,
-      isMerged: pr.merged,
-      openedAt: new Date(pr.created_at),
-      mergedAt: pr.merged_at ? new Date(pr.merged_at) : null,
-      closedAt: pr.closed_at ? new Date(pr.closed_at) : null,
-      url: `https://github.com/${orgName}/${pr.repository}/pull/${pr.number}`,
-      linesAdded: pr.additions || 0,
-      linesDeleted: pr.deletions || 0,
-      commits: pr.commits || 0,
-      comments: (pr.comments || 0) + (pr.review_comments || 0),
-      reviews: pr.review_comments || 0
-    }
-  });
+async function createOrUpdatePullRequest(
+  supabase: ReturnType<typeof createClient<Database>>,
+  pr: GitHubPullRequest, 
+  repoId: string, 
+  authorId: string, 
+  orgName: string
+) {
+  const status = pr.merged ? 'MERGED' : pr.state.toUpperCase() === 'OPEN' ? 'OPEN' : 'CLOSED'
+  
+  const prData = {
+    github_pr_id: pr.id,
+    title: pr.title,
+    description: pr.body || '',
+    status,
+    is_draft: pr.draft,
+    is_merged: pr.merged,
+    source_branch: pr.head.ref,
+    target_branch: pr.base.ref,
+    opened_at: new Date(pr.created_at).toISOString(),
+    merged_at: pr.merged_at ? new Date(pr.merged_at).toISOString() : null,
+    closed_at: pr.closed_at ? new Date(pr.closed_at).toISOString() : null,
+    url: `https://github.com/${orgName}/${pr.repository}/pull/${pr.number}`,
+    lines_added: pr.additions || 0,
+    lines_deleted: pr.deletions || 0,
+    commits: pr.commits || 0,
+    comments: (pr.comments || 0) + (pr.review_comments || 0),
+    reviews: pr.review_comments || 0,
+    author_id: authorId,
+    repo_id: repoId
+  }
+
+  const { data: existing } = await supabase
+    .from('pull_request')
+    .select()
+    .eq('github_pr_id', pr.id)
+    .single()
+
+  if (existing) {
+    const { data } = await supabase
+      .from('pull_request')
+      .update(prData)
+      .eq('github_pr_id', pr.id)
+      .select()
+      .single()
+    return data
+  }
+
+  const { data } = await supabase
+    .from('pull_request')
+    .insert(prData)
+    .select()
+    .single()
+  return data
 }
 
 interface ExecutionContext {
@@ -447,6 +643,16 @@ const worker = {
     const octokit = new Octokit({
       auth: env.GITHUB_KEY
     });
+
+    const supabase = createClient<Database>(
+      env.PUBLIC_SUPABASE_URL,
+      env.SUPABASE_SERVICE_ROLE_KEY,
+      {
+        auth: {
+          persistSession: false
+        }
+      }
+    );
 
     // Helper functions that need access to octokit
     async function fetchCommitDetails(owner: string, repo: string, sha: string) {
@@ -497,7 +703,8 @@ const worker = {
           id: prData.id,
           number: prData.number,
           title: prData.title,
-          state: prData.state as PrStatus,
+          body: prData.body,
+          state: prData.state,
           draft: prData.draft || false,
           merged: prData.merged,
           created_at: prData.created_at,
@@ -559,15 +766,12 @@ const worker = {
           const repoId = data.repository.id.toString();
           
           // Get or create team
-          const team = await getOrCreateTeam(data.repository.owner.id, orgName);
+          const team = await getOrCreateTeam(supabase, data.repository.owner.id, orgName);
+          if (!team) throw new Error('Failed to create/get team');
           
           // Get or create repo
-          const repo = await getOrCreateRepo(
-            team.id,
-            repoName,
-            repoId,
-            data.repository.html_url
-          );
+          const repo = await getOrCreateRepo(supabase, team.id, repoName, repoId, data.repository.html_url);
+          if (!repo) throw new Error('Failed to create/get repo');
 
           // Collect all commit details first
           const processedCommits: GitHubCommit[] = [];
@@ -578,20 +782,22 @@ const worker = {
             if (!commitDetails?.author?.id) continue;
 
             const contributor = await getOrCreateContributor(
+              supabase,
               team.id,
               commitDetails.author.id.toString(),
               commitDetails.author.username,
               commitDetails.author.name || commitDetails.author.username || 'Unknown User'
             );
+            if (!contributor) continue;
 
-            await createCommit(commitDetails, repo.id, contributor.id, orgName);
+            await createCommit(supabase, commitDetails, repo.id, contributor.id, orgName);
             processedCommits.push(commitDetails);
           }
 
           // Update monthly stats once with all commits
           if (processedCommits.length > 0) {
             const firstCommitDate = new Date(processedCommits[0].timestamp);
-            await updateMonthStats(team.id, firstCommitDate, processedCommits);
+            await updateMonthStats(supabase, team.id, firstCommitDate, processedCommits);
           }
           break;
         }
@@ -602,31 +808,30 @@ const worker = {
           const repoId = data.repository.id.toString();
           
           // Get or create team
-          const team = await getOrCreateTeam(data.repository.owner.id, orgName);
+          const team = await getOrCreateTeam(supabase, data.repository.owner.id, orgName);
+          if (!team) throw new Error('Failed to create/get team');
           
           // Get or create repo
-          const repo = await getOrCreateRepo(
-            team.id,
-            repoName,
-            repoId,
-            data.repository.html_url
-          );
+          const repo = await getOrCreateRepo(supabase, team.id, repoName, repoId, data.repository.html_url);
+          if (!repo) throw new Error('Failed to create/get repo');
 
           const prDetails = await fetchPullRequestDetails(orgName, repoName, data.pull_request.number);
           if (!prDetails?.user?.id) break;
 
           const contributor = await getOrCreateContributor(
+            supabase,
             team.id,
             prDetails.user.id.toString(),
             prDetails.user.login,
             prDetails.user.name || prDetails.user.login,
             prDetails.user.avatar_url
           );
+          if (!contributor) break;
 
-          await createOrUpdatePullRequest(prDetails, repo.id, contributor.id, orgName);
+          await createOrUpdatePullRequest(supabase, prDetails, repo.id, contributor.id, orgName);
           
           // Update monthly stats
-          await updateMonthStats(team.id, new Date(prDetails.created_at), [], prDetails);
+          await updateMonthStats(supabase, team.id, new Date(prDetails.created_at), [], prDetails);
           break;
         }
 
@@ -638,9 +843,9 @@ const worker = {
     } catch (err) {
       console.error('Error processing webhook:', err);
       
-      // Handle Prisma errors specially
-      if (isPrismaError(err)) {
-        return new Response(`Database error: ${err.code}`, { status: 500 });
+      // Handle Supabase errors specially
+      if (isSupabaseError(err)) {
+        return new Response(`Database error: ${err.message}`, { status: 500 });
       }
       
       return new Response('Internal server error', { status: 500 });
