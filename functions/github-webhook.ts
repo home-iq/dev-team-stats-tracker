@@ -579,6 +579,13 @@ async function createCommit(
 ) {
   const now = new Date().toISOString();
   
+  // First check if commit already exists
+  const { data: existingCommit } = await supabase
+    .from('Commit')
+    .select()
+    .eq('githubCommitId', commit.id)
+    .single();
+
   console.log('Creating commit with data:', {
     githubCommitId: commit.id,
     message: commit.message,
@@ -588,7 +595,8 @@ async function createCommit(
     authoredAt: new Date(commit.timestamp).toISOString(),
     url: `https://github.com/${githubOrgName}/${commit.repository}/commit/${commit.sha}`,
     repoId: repoId,
-    authorId: authorId
+    authorId: authorId,
+    isNew: !existingCommit
   });
 
   const { data, error } = await supabase
@@ -622,7 +630,7 @@ async function createCommit(
   }
   
   console.log('Successfully created/updated commit record:', data);
-  return data;
+  return { data, isNew: !existingCommit };
 }
 
 // Create or update pull request record
@@ -941,10 +949,13 @@ const worker = {
             }
 
             console.log('Creating commit record for:', commit.id);
-            const createdCommit = await createCommit(supabase, commitDetails, repo.id, contributor.id, githubOrgName);
-            if (createdCommit) {
+            const commitResult = await createCommit(supabase, commitDetails, repo.id, contributor.id, githubOrgName);
+            if (commitResult) {
               console.log('Successfully created commit record');
-              processedCommits.push(commitDetails);
+              // Only add to processedCommits if it's a new commit
+              if (commitResult.isNew) {
+                processedCommits.push(commitDetails);
+              }
 
               // Create event for the commit
               await createEvent(
