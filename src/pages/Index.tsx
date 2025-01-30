@@ -8,8 +8,58 @@ import { Header } from "@/components/dashboard/Header";
 import { MonthSelector } from "@/components/dashboard/MonthSelector";
 import { OverallStats } from "@/components/dashboard/OverallStats";
 import { useNavigate, useParams } from "react-router-dom";
-import { getSortedContributors } from "@/data/contributors";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { supabase } from "@/lib/supabase";
+import { Badge } from "@/components/ui/badge";
+
+interface Contributor {
+  login?: string;
+  githubUserId?: string;
+  totalCommits: number;
+  totalPrs: number;
+  mergedPrs: number;
+  activeRepositories: string[];
+  linesAdded: number;
+  linesRemoved: number;
+  contributionScore: number;
+  rank?: number;
+}
+
+interface ContributorLastActive {
+  githubUserId: string;
+  updatedAt: string;
+}
+
+interface Month {
+  id: string;
+  date: string;
+  teamId: string;
+  createdAt: string;
+  stats: {
+    overall: {
+      totalPrs: number;
+      mergedPrs: number;
+      linesAdded: number;
+      linesRemoved: number;
+      totalCommits: number;
+      averageContributionScore: number;
+    };
+    contributors: Record<string, Contributor>;
+    object_keys: string[];
+  };
+}
+
+interface ContributorData {
+  id: string;
+  name: string;
+  githubUserId: string;
+  githubLogin: string;
+  avatarUrl?: string;
+  cursorEmail?: string;
+  teamId: string;
+  createdAt: string;
+  updatedAt: string;
+}
 
 const Index = () => {
   const navigate = useNavigate();
@@ -17,29 +67,9 @@ const Index = () => {
   const isMobile = useIsMobile();
   const [isLoading, setIsLoading] = useState(true);
   const [showContent, setShowContent] = useState(false);
-  const [contributors, setContributors] = useState<ReturnType<typeof getSortedContributors>>([]);
-
-  useEffect(() => {
-    // Start loading sequence
-    setContributors(getSortedContributors());
-    
-    // After progress bar completes, start fade out
-    const loadingTimer = setTimeout(() => {
-      setIsLoading(false);
-    }, 1200);
-
-    // After loading fades out, show content
-    const contentTimer = setTimeout(() => {
-      setShowContent(true);
-    }, 1500);
-
-    return () => {
-      clearTimeout(loadingTimer);
-      clearTimeout(contentTimer);
-    };
-  }, []);
-
-  // Separate month states for dashboard and contributor detail
+  const [monthsData, setMonthsData] = useState<Month[]>([]);
+  const [currentMonthData, setCurrentMonthData] = useState<Month | null>(null);
+  const [availableMonths, setAvailableMonths] = useState<Date[]>([]);
   const [dashboardMonth, setDashboardMonth] = useState(() => {
     if (!contributorId && month) {
       try {
@@ -62,29 +92,107 @@ const Index = () => {
     return new Date();
   });
 
+  // Track all known contributor IDs from Month stats
+  const [knownContributorIds, setKnownContributorIds] = useState<Set<string>>(new Set());
+  // Store full contributor records from database
+  const [contributorRecords, setContributorRecords] = useState<Record<string, ContributorData>>({});
+
   // Get the current active month based on the view
   const currentMonth = contributorId ? contributorMonth : dashboardMonth;
   const formattedMonth = format(currentMonth, "MMMM yyyy");
   const urlFormattedMonth = format(currentMonth, "MMMM-yyyy").toLowerCase();
 
-  // Update month states when URL changes
+  // Fetch all months data at once
   useEffect(() => {
-    if (month) {
-      try {
-        const parsedMonth = parse(month, 'MMMM-yyyy', new Date());
-        if (contributorId) {
-          setContributorMonth(parsedMonth);
-        } else {
-          setDashboardMonth(parsedMonth);
-        }
-      } catch {
-        // Invalid month format, keep current month
+    const fetchAllData = async () => {
+      // Only show loading on initial data load
+      if (monthsData.length === 0) {
+        setIsLoading(true);
+        setShowContent(false);
       }
-    } else if (!contributorId) {
-      // No month in URL and on dashboard, reset to current month
-      setDashboardMonth(new Date());
-    }
-  }, [month, contributorId]);
+
+      try {
+        // Fetch all months
+        const { data, error } = await supabase
+          .from('Month')
+          .select('*')
+          .order('date', { ascending: false });
+
+        if (error) throw error;
+        if (!data) return;
+
+        setMonthsData(data);
+        setAvailableMonths(data.map(m => new Date(m.date)));
+        
+        // Get unique contributor IDs from all months
+        const newContributorIds = new Set<string>();
+        data.forEach(month => {
+          Object.entries(month.stats.contributors).forEach(([_, contributor]: [string, Contributor]) => {
+            if (contributor.githubUserId) {
+              newContributorIds.add(contributor.githubUserId);
+            }
+          });
+        });
+        
+        // Fetch ALL contributors at once
+        const { data: contributorData, error: contributorError } = await supabase
+          .from('Contributor')
+          .select('*')
+          .returns<ContributorData[]>();
+
+        if (contributorError) throw contributorError;
+        if (contributorData) {
+          // Store all contributor data
+          const contributors = contributorData.reduce((acc, curr) => {
+            acc[curr.githubUserId] = curr;
+            return acc;
+          }, {} as Record<string, ContributorData>);
+          
+          setContributorRecords(contributors);
+          setKnownContributorIds(new Set(contributorData.map(c => c.githubUserId)));
+        }
+
+        // Set initial month data
+        const monthStart = startOfMonth(currentMonth);
+        const initialMonthData = data.find(
+          m => format(new Date(m.date), "yyyy-MM") === format(monthStart, "yyyy-MM")
+        );
+        
+        if (initialMonthData) {
+          setCurrentMonthData(initialMonthData);
+        } else {
+          setCurrentMonthData(null);
+        }
+
+        // Only show loading animation on initial load
+        if (monthsData.length === 0) {
+          const loadingEndTime = Math.max(1200 - (Date.now() - startTime), 0);
+          setTimeout(() => {
+            setIsLoading(false);
+            setTimeout(() => {
+              setShowContent(true);
+            }, 300);
+          }, loadingEndTime);
+        }
+      } catch (error) {
+        console.error('Error fetching data:', error);
+        setIsLoading(false);
+        setShowContent(true);
+      }
+    };
+
+    const startTime = Date.now();
+    fetchAllData();
+  }, []); // Only run on mount
+
+  // Remove the fetchSingleContributor effect since we load all data upfront
+  useEffect(() => {
+    const monthStart = startOfMonth(currentMonth);
+    const monthData = monthsData.find(
+      m => format(new Date(m.date), "yyyy-MM") === format(monthStart, "yyyy-MM")
+    );
+    setCurrentMonthData(monthData || null);
+  }, [currentMonth, monthsData]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -117,19 +225,33 @@ const Index = () => {
     }
   };
 
+  // Update handlePreviousMonth and handleNextMonth
   const handlePreviousMonth = () => {
-    const newMonth = subMonths(currentMonth, 1);
-    handleMonthChange(newMonth);
+    const currentIndex = availableMonths.findIndex(
+      m => format(m, "yyyy-MM") === format(currentMonth, "yyyy-MM")
+    );
+    
+    if (currentIndex < availableMonths.length - 1) {
+      handleMonthChange(availableMonths[currentIndex + 1]);
+    }
   };
 
   const handleNextMonth = () => {
-    const nextMonth = startOfMonth(subMonths(new Date(), -1));
-    if (!isFuture(currentMonth)) {
-      const proposedNext = subMonths(currentMonth, -1);
-      if (!isFuture(proposedNext)) {
-        handleMonthChange(proposedNext);
-      }
+    const currentIndex = availableMonths.findIndex(
+      m => format(m, "yyyy-MM") === format(currentMonth, "yyyy-MM")
+    );
+    
+    if (currentIndex > 0) {
+      handleMonthChange(availableMonths[currentIndex - 1]);
     }
+  };
+
+  // Pass available months to MonthSelector
+  const monthSelectorProps = {
+    currentMonth,
+    onPreviousMonth: handlePreviousMonth,
+    onNextMonth: handleNextMonth,
+    availableMonths,
   };
 
   const container = {
@@ -141,6 +263,29 @@ const Index = () => {
       }
     }
   };
+
+  // Don't render anything until we have initial data
+  if (isLoading) {
+    return (
+      <div className="min-h-screen p-6 md:p-8 flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (!showContent) {
+    return (
+      <div className="min-h-screen p-6 md:p-8 flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+        >
+          <LoadingSpinner />
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen p-6 md:p-8">
@@ -155,19 +300,13 @@ const Index = () => {
           >
             <div className="max-w-7xl mx-auto">
               <Header 
-                currentMonth={dashboardMonth}
-                onPreviousMonth={handlePreviousMonth}
-                onNextMonth={handleNextMonth}
+                {...monthSelectorProps}
                 onMonthChange={handleMonthChange}
               />
               
               {isMobile && (
                 <div className="mb-8">
-                  <MonthSelector
-                    currentMonth={dashboardMonth}
-                    onPreviousMonth={handlePreviousMonth}
-                    onNextMonth={handleNextMonth}
-                  />
+                  <MonthSelector {...monthSelectorProps} />
                 </div>
               )}
 
@@ -180,30 +319,57 @@ const Index = () => {
                   >
                     <LoadingSpinner />
                   </motion.div>
-                ) : showContent && (
+                ) : showContent && currentMonthData ? (
                   <motion.div 
                     key="content"
                   >
-                    <OverallStats />
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <OverallStats overall={currentMonthData.stats.overall} />
+                    </motion.div>
                     <motion.div 
                       className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
                       variants={container}
                       initial="hidden"
                       animate="show"
                     >
-                      {contributors.map((contributor) => (
-                        <ContributorCard
-                          key={contributor.login}
-                          contributor={contributor}
-                          onClick={() => {
-                            setContributorMonth(dashboardMonth);
-                            navigate(`/contributor/${contributor.login}/${urlFormattedMonth}`);
-                          }}
-                        />
-                      ))}
+                      {currentMonthData.stats.contributors && 
+                        Object.entries(currentMonthData.stats.contributors)
+                          .sort(([, a], [, b]) => {
+                            const scoreCompare = (b.contributionScore || 0) - (a.contributionScore || 0);
+                            if (scoreCompare === 0) {
+                              return a.login?.localeCompare(b.login || '') || 0;
+                            }
+                            return scoreCompare;
+                          })
+                          .map(([login, contributor], index) => (
+                            <ContributorCard
+                              key={login}
+                              contributor={{
+                                login: contributor.login || login,
+                                avatar_url: `https://avatars.githubusercontent.com/u/${contributor.githubUserId || login}`,
+                                totalCommits: contributor.totalCommits,
+                                totalPrs: contributor.totalPrs,
+                                mergedPrs: contributor.mergedPrs,
+                                activeRepositories: contributor.activeRepositories || [],
+                                linesOfCode: (contributor.linesAdded || 0) + (contributor.linesRemoved || 0),
+                                contributionScore: contributor.contributionScore || 0,
+                                rank: index + 1,
+                                lastActive: contributorRecords[contributor.githubUserId || login]?.updatedAt
+                              }}
+                              onClick={() => {
+                                setContributorMonth(dashboardMonth);
+                                navigate(`/contributor/${contributor.login || login}/${urlFormattedMonth}`);
+                              }}
+                            />
+                          ))
+                      }
                     </motion.div>
                   </motion.div>
-                )}
+                ) : null}
               </AnimatePresence>
             </div>
           </motion.div>
@@ -219,8 +385,18 @@ const Index = () => {
             <ContributorDetail
               login={contributorId}
               currentMonth={contributorMonth}
+              monthData={currentMonthData}
               onPreviousMonth={handlePreviousMonth}
               onNextMonth={handleNextMonth}
+              availableMonths={availableMonths}
+              lastActive={(() => {
+                // Find the contributor record by matching githubLogin
+                const contributor = Object.values(contributorRecords).find(
+                  record => record.githubLogin === contributorId
+                );
+                return contributor?.updatedAt;
+              })()}
+              contributorRecords={contributorRecords}
               onBack={() => {
                 const dashboardMonthStr = format(dashboardMonth, "MMMM-yyyy").toLowerCase();
                 if (format(dashboardMonth, "yyyy-MM") !== format(new Date(), "yyyy-MM")) {

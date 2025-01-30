@@ -7,9 +7,16 @@ interface HeaderProps {
   onPreviousMonth: () => void;
   onNextMonth: () => void;
   onMonthChange: (date: Date) => void;
+  availableMonths: Date[];
 }
 
-export const Header = ({ currentMonth, onPreviousMonth, onNextMonth, onMonthChange }: HeaderProps) => {
+export const Header = ({ 
+  currentMonth, 
+  onPreviousMonth, 
+  onNextMonth, 
+  onMonthChange,
+  availableMonths 
+}: HeaderProps) => {
   const isMobile = useIsMobile();
   const navigate = useNavigate();
 
@@ -36,6 +43,7 @@ export const Header = ({ currentMonth, onPreviousMonth, onNextMonth, onMonthChan
           currentMonth={currentMonth}
           onPreviousMonth={onPreviousMonth}
           onNextMonth={onNextMonth}
+          availableMonths={availableMonths}
         />
       )}
     </div>
