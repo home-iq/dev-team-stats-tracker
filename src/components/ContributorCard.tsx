@@ -19,6 +19,10 @@ interface ContributorCardProps {
 }
 
 export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) => {
+  const truncatedLogin = contributor.login.length > 14 
+    ? `${contributor.login.slice(0, 14)}...` 
+    : contributor.login;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 20 }}
@@ -39,7 +43,7 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
           </Avatar>
           
           <div className="flex-1">
-            <h3 className="font-semibold text-lg mb-2 text-gradient">{contributor.login}</h3>
+            <h3 className="font-semibold text-lg mb-2 text-gradient" title={contributor.login}>{truncatedLogin}</h3>
             <div className="flex flex-wrap gap-2 mb-4">
               <Badge variant="secondary" className="flex items-center gap-1 neo-blur">
                 <GitCommit className="w-3 h-3" />
