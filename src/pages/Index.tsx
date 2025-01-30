@@ -6,6 +6,7 @@ import { useIsMobile } from "@/hooks/use-mobile";
 import { AnimatePresence, motion } from "framer-motion";
 import { Header } from "@/components/dashboard/Header";
 import { MonthSelector } from "@/components/dashboard/MonthSelector";
+import { OverallStats } from "@/components/dashboard/OverallStats";
 import { useNavigate, useParams } from "react-router-dom";
 import { getSortedContributors } from "@/data/contributors";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
@@ -182,21 +183,25 @@ const Index = () => {
                 ) : showContent && (
                   <motion.div 
                     key="content"
-                    className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
-                    variants={container}
-                    initial="hidden"
-                    animate="show"
                   >
-                    {contributors.map((contributor) => (
-                      <ContributorCard
-                        key={contributor.login}
-                        contributor={contributor}
-                        onClick={() => {
-                          setContributorMonth(dashboardMonth);
-                          navigate(`/contributor/${contributor.login}/${urlFormattedMonth}`);
-                        }}
-                      />
-                    ))}
+                    <OverallStats />
+                    <motion.div 
+                      className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+                      variants={container}
+                      initial="hidden"
+                      animate="show"
+                    >
+                      {contributors.map((contributor) => (
+                        <ContributorCard
+                          key={contributor.login}
+                          contributor={contributor}
+                          onClick={() => {
+                            setContributorMonth(dashboardMonth);
+                            navigate(`/contributor/${contributor.login}/${urlFormattedMonth}`);
+                          }}
+                        />
+                      ))}
+                    </motion.div>
                   </motion.div>
                 )}
               </AnimatePresence>
