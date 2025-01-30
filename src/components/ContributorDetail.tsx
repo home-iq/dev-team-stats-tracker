@@ -10,29 +10,54 @@ import { formatInTimeZone } from 'date-fns-tz';
 import { MonthSelector } from "@/components/dashboard/MonthSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useQuery } from "@tanstack/react-query";
-import { contributorsData } from "@/data/contributors";
+
+interface Month {
+  id: string;
+  date: string;
+  teamId: string;
+  createdAt: string;
+  stats: {
+    overall: {
+      totalPrs: number;
+      mergedPrs: number;
+      linesAdded: number;
+      linesRemoved: number;
+      totalCommits: number;
+      averageContributionScore: number;
+    };
+    contributors: Record<string, {
+      login?: string;
+      githubUserId?: string;
+      totalCommits: number;
+      totalPrs: number;
+      activeRepositories: string[];
+      linesAdded: number;
+      linesRemoved: number;
+      contributionScore: number;
+      rank?: number;
+    }>;
+    object_keys: string[];
+  };
+}
 
 interface ContributorDetailProps {
-  login: string;
-  onBack: () => void;
+  login?: string;
   currentMonth: Date;
+  monthData: Month | null;
   onPreviousMonth: () => void;
   onNextMonth: () => void;
+  onBack: () => void;
 }
 
 export const ContributorDetail = ({ 
   login, 
   onBack, 
   currentMonth,
+  monthData,
   onPreviousMonth,
   onNextMonth 
 }: ContributorDetailProps) => {
   const isMobile = useIsMobile();
-
-  // Find contributor data
-  const contributor = Object.values(contributorsData.contributors).find(c => c.login === login);
-  const avatar_url = contributor ? `https://avatars.githubusercontent.com/u/${contributor.githubUserId || login}` : '';
-  const linesOfCode = contributor ? contributor.linesAdded + contributor.linesRemoved : 0;
 
   // Get activity data
   const { data: activities } = useQuery({
@@ -57,13 +82,30 @@ export const ContributorDetail = ({
     },
   });
 
-  if (!contributor) {
+  if (!login || !monthData) {
     return (
       <div className="text-center p-8">
         <h2 className="text-2xl font-bold">Contributor not found</h2>
       </div>
     );
   }
+
+  // Find contributor by login in the contributors object
+  const contributorEntry = Object.entries(monthData.stats.contributors).find(
+    ([_, contributor]) => contributor.login === login
+  );
+
+  if (!contributorEntry) {
+    return (
+      <div className="text-center p-8">
+        <h2 className="text-2xl font-bold">Contributor data not found</h2>
+      </div>
+    );
+  }
+
+  const [githubUserId, contributor] = contributorEntry;
+  const avatar_url = `https://avatars.githubusercontent.com/u/${contributor.githubUserId || githubUserId}`;
+  const linesOfCode = (contributor.linesAdded || 0) + (contributor.linesRemoved || 0);
 
   return (
     <motion.div
@@ -86,10 +128,10 @@ export const ContributorDetail = ({
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <Avatar className="w-16 h-16 border-2 border-primary/20">
-                <img src={avatar_url} alt={contributor.login} className="object-cover" />
+                <img src={avatar_url} alt={contributor.login || login} className="object-cover" />
               </Avatar>
               <div>
-                <h2 className="text-3xl font-bold mb-0.5 text-gradient">{contributor.login}</h2>
+                <h2 className="text-3xl font-bold mb-0.5 text-gradient">{contributor.login || login}</h2>
                 <p className="text-sm text-muted-foreground">
                   Contribution Score: <span className="font-semibold">{contributor.contributionScore}</span>
                 </p>

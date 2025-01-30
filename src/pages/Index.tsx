@@ -13,6 +13,7 @@ import { LoadingSpinner } from "@/components/LoadingSpinner";
 import { supabase } from "@/lib/supabase";
 
 interface Contributor {
+  login?: string;
   githubUserId?: string;
   totalCommits: number;
   totalPrs: number;
@@ -49,8 +50,6 @@ const Index = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [showContent, setShowContent] = useState(false);
   const [monthData, setMonthData] = useState<Month | null>(null);
-
-  // Separate month states for dashboard and contributor detail
   const [dashboardMonth, setDashboardMonth] = useState(() => {
     if (!contributorId && month) {
       try {
@@ -73,41 +72,63 @@ const Index = () => {
     return new Date();
   });
 
+  // Get the current active month based on the view
+  const currentMonth = contributorId ? contributorMonth : dashboardMonth;
+  const formattedMonth = format(currentMonth, "MMMM yyyy");
+  const urlFormattedMonth = format(currentMonth, "MMMM-yyyy").toLowerCase();
+
   useEffect(() => {
+    let mounted = true;
+    let loadingTimeout: NodeJS.Timeout;
+    let showContentTimeout: NodeJS.Timeout;
+
     const fetchMonthData = async () => {
       try {
-        console.log('Fetching month data...');
         const { data, error } = await supabase
           .from('Month')
           .select('*')
           .order('date', { ascending: false })
           .limit(1);
 
-        console.log('Supabase response:', { data, error });
-
         if (error) {
           throw error;
         }
 
-        if (data && data.length > 0) {
-          console.log('Setting month data:', data[0]);
+        if (data && data.length > 0 && mounted) {
           setMonthData(data[0]);
+          
+          // Ensure loading animation shows for at least 1.2 seconds
+          const loadingEndTime = Math.max(1200 - (Date.now() - startTime), 0);
+          loadingTimeout = setTimeout(() => {
+            if (mounted) {
+              setIsLoading(false);
+              // Add a small delay before showing content for smooth transition
+              showContentTimeout = setTimeout(() => {
+                if (mounted) {
+                  setShowContent(true);
+                }
+              }, 300);
+            }
+          }, loadingEndTime);
         }
       } catch (error) {
         console.error('Error fetching month data:', error);
-      } finally {
-        setIsLoading(false);
-        setShowContent(true);
+        if (mounted) {
+          setIsLoading(false);
+          setShowContent(true);
+        }
       }
     };
 
+    const startTime = Date.now();
     fetchMonthData();
-  }, []);
 
-  // Get the current active month based on the view
-  const currentMonth = contributorId ? contributorMonth : dashboardMonth;
-  const formattedMonth = format(currentMonth, "MMMM yyyy");
-  const urlFormattedMonth = format(currentMonth, "MMMM-yyyy").toLowerCase();
+    return () => {
+      mounted = false;
+      if (loadingTimeout) clearTimeout(loadingTimeout);
+      if (showContentTimeout) clearTimeout(showContentTimeout);
+    };
+  }, []);
 
   // Update month states when URL changes
   useEffect(() => {
@@ -184,6 +205,29 @@ const Index = () => {
     }
   };
 
+  // Don't render anything until we have initial data
+  if (isLoading) {
+    return (
+      <div className="min-h-screen p-6 md:p-8 flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (!showContent) {
+    return (
+      <div className="min-h-screen p-6 md:p-8 flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+        >
+          <LoadingSpinner />
+        </motion.div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen p-6 md:p-8">
       <AnimatePresence mode="wait" initial={false}>
@@ -226,7 +270,13 @@ const Index = () => {
                   <motion.div 
                     key="content"
                   >
-                    <OverallStats overall={monthData.stats.overall} />
+                    <motion.div
+                      initial={{ opacity: 0 }}
+                      animate={{ opacity: 1 }}
+                      transition={{ duration: 0.3 }}
+                    >
+                      <OverallStats overall={monthData.stats.overall} />
+                    </motion.div>
                     <MonthObjectKeys />
                     <motion.div 
                       className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
@@ -234,25 +284,37 @@ const Index = () => {
                       initial="hidden"
                       animate="show"
                     >
-                      {monthData.stats.contributors && Object.entries(monthData.stats.contributors).map(([login, contributor]) => (
-                        <ContributorCard
-                          key={login}
-                          contributor={{
-                            login,
-                            avatar_url: `https://avatars.githubusercontent.com/u/${contributor.githubUserId || login}`,
-                            totalCommits: contributor.totalCommits,
-                            totalPrs: contributor.totalPrs,
-                            activeRepositories: contributor.activeRepositories || [],
-                            linesOfCode: (contributor.linesAdded || 0) + (contributor.linesRemoved || 0),
-                            contributionScore: contributor.contributionScore || 0,
-                            rank: contributor.rank || 0,
-                          }}
-                          onClick={() => {
-                            setContributorMonth(dashboardMonth);
-                            navigate(`/contributor/${login}/${urlFormattedMonth}`);
-                          }}
-                        />
-                      ))}
+                      {monthData.stats.contributors && 
+                        Object.entries(monthData.stats.contributors)
+                          .sort(([, a], [, b]) => {
+                            // First sort by contribution score (descending)
+                            const scoreCompare = (b.contributionScore || 0) - (a.contributionScore || 0);
+                            // If scores are equal, sort by login (ascending)
+                            if (scoreCompare === 0) {
+                              return a.login?.localeCompare(b.login || '') || 0;
+                            }
+                            return scoreCompare;
+                          })
+                          .map(([login, contributor], index) => (
+                            <ContributorCard
+                              key={login}
+                              contributor={{
+                                login: contributor.login || login,
+                                avatar_url: `https://avatars.githubusercontent.com/u/${contributor.githubUserId || login}`,
+                                totalCommits: contributor.totalCommits,
+                                totalPrs: contributor.totalPrs,
+                                activeRepositories: contributor.activeRepositories || [],
+                                linesOfCode: (contributor.linesAdded || 0) + (contributor.linesRemoved || 0),
+                                contributionScore: contributor.contributionScore || 0,
+                                rank: index + 1,
+                              }}
+                              onClick={() => {
+                                setContributorMonth(dashboardMonth);
+                                navigate(`/contributor/${contributor.login || login}/${urlFormattedMonth}`);
+                              }}
+                            />
+                          ))
+                      }
                     </motion.div>
                   </motion.div>
                 ) : null}
@@ -271,6 +333,7 @@ const Index = () => {
             <ContributorDetail
               login={contributorId}
               currentMonth={contributorMonth}
+              monthData={monthData}
               onPreviousMonth={handlePreviousMonth}
               onNextMonth={handleNextMonth}
               onBack={() => {
