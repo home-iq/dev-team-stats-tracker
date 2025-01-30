@@ -291,7 +291,7 @@ async function getOrCreateTeam(
     .upsert(
       {
         id: crypto.randomUUID(),
-        githubOrgId: BigInt(githubOrgId),
+        githubOrgId: githubOrgId,
         githubOrgName: githubOrgName,
         name: githubOrgName,
         updatedAt: now,
