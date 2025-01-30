@@ -569,6 +569,9 @@ const worker = {
             data.repository.html_url
           );
 
+          // Collect all commit details first
+          const processedCommits: GitHubCommit[] = [];
+          
           // Process each commit
           for (const commit of data.commits) {
             const commitDetails = await fetchCommitDetails(orgName, repoName, commit.id);
@@ -582,9 +585,13 @@ const worker = {
             );
 
             await createCommit(commitDetails, repo.id, contributor.id, orgName);
-            
-            // Update monthly stats
-            await updateMonthStats(team.id, new Date(commitDetails.timestamp), [commitDetails]);
+            processedCommits.push(commitDetails);
+          }
+
+          // Update monthly stats once with all commits
+          if (processedCommits.length > 0) {
+            const firstCommitDate = new Date(processedCommits[0].timestamp);
+            await updateMonthStats(team.id, firstCommitDate, processedCommits);
           }
           break;
         }
