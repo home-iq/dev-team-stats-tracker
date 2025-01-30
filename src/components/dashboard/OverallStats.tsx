@@ -1,10 +1,18 @@
 import { Card } from "@/components/ui/card";
 import { GitPullRequest, Code2, GitCommit } from "lucide-react";
-import { contributorsData } from "@/data/contributors";
 
-export const OverallStats = () => {
-  const { overall } = contributorsData;
+interface OverallStatsProps {
+  overall: {
+    totalPrs: number;
+    mergedPrs: number;
+    linesAdded: number;
+    linesRemoved: number;
+    totalCommits: number;
+    averageContributionScore: number;
+  };
+}
 
+export const OverallStats = ({ overall }: OverallStatsProps) => {
   return (
     <div className="grid grid-cols-2 md:grid-cols-4 gap-2 md:gap-4 mb-6">
       <Card className="p-2 md:p-4 glass-morphism">

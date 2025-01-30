@@ -9,8 +9,38 @@ import { MonthSelector } from "@/components/dashboard/MonthSelector";
 import { OverallStats } from "@/components/dashboard/OverallStats";
 import { MonthObjectKeys } from "@/components/dashboard/MonthObjectKeys";
 import { useNavigate, useParams } from "react-router-dom";
-import { getSortedContributors } from "@/data/contributors";
 import { LoadingSpinner } from "@/components/LoadingSpinner";
+import { supabase } from "@/lib/supabase";
+
+interface Contributor {
+  githubUserId?: string;
+  totalCommits: number;
+  totalPrs: number;
+  activeRepositories: string[];
+  linesAdded: number;
+  linesRemoved: number;
+  contributionScore: number;
+  rank?: number;
+}
+
+interface Month {
+  id: string;
+  date: string;
+  teamId: string;
+  createdAt: string;
+  stats: {
+    overall: {
+      totalPrs: number;
+      mergedPrs: number;
+      linesAdded: number;
+      linesRemoved: number;
+      totalCommits: number;
+      averageContributionScore: number;
+    };
+    contributors: Record<string, Contributor>;
+    object_keys: string[];
+  };
+}
 
 const Index = () => {
   const navigate = useNavigate();
@@ -18,27 +48,7 @@ const Index = () => {
   const isMobile = useIsMobile();
   const [isLoading, setIsLoading] = useState(true);
   const [showContent, setShowContent] = useState(false);
-  const [contributors, setContributors] = useState<ReturnType<typeof getSortedContributors>>([]);
-
-  useEffect(() => {
-    // Start loading sequence
-    setContributors(getSortedContributors());
-    
-    // After progress bar completes, start fade out
-    const loadingTimer = setTimeout(() => {
-      setIsLoading(false);
-    }, 1200);
-
-    // After loading fades out, show content
-    const contentTimer = setTimeout(() => {
-      setShowContent(true);
-    }, 1500);
-
-    return () => {
-      clearTimeout(loadingTimer);
-      clearTimeout(contentTimer);
-    };
-  }, []);
+  const [monthData, setMonthData] = useState<Month | null>(null);
 
   // Separate month states for dashboard and contributor detail
   const [dashboardMonth, setDashboardMonth] = useState(() => {
@@ -62,6 +72,37 @@ const Index = () => {
     }
     return new Date();
   });
+
+  useEffect(() => {
+    const fetchMonthData = async () => {
+      try {
+        console.log('Fetching month data...');
+        const { data, error } = await supabase
+          .from('Month')
+          .select('*')
+          .order('date', { ascending: false })
+          .limit(1);
+
+        console.log('Supabase response:', { data, error });
+
+        if (error) {
+          throw error;
+        }
+
+        if (data && data.length > 0) {
+          console.log('Setting month data:', data[0]);
+          setMonthData(data[0]);
+        }
+      } catch (error) {
+        console.error('Error fetching month data:', error);
+      } finally {
+        setIsLoading(false);
+        setShowContent(true);
+      }
+    };
+
+    fetchMonthData();
+  }, []);
 
   // Get the current active month based on the view
   const currentMonth = contributorId ? contributorMonth : dashboardMonth;
@@ -181,11 +222,11 @@ const Index = () => {
                   >
                     <LoadingSpinner />
                   </motion.div>
-                ) : showContent && (
+                ) : showContent && monthData ? (
                   <motion.div 
                     key="content"
                   >
-                    <OverallStats />
+                    <OverallStats overall={monthData.stats.overall} />
                     <MonthObjectKeys />
                     <motion.div 
                       className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
@@ -193,19 +234,28 @@ const Index = () => {
                       initial="hidden"
                       animate="show"
                     >
-                      {contributors.map((contributor) => (
+                      {monthData.stats.contributors && Object.entries(monthData.stats.contributors).map(([login, contributor]) => (
                         <ContributorCard
-                          key={contributor.login}
-                          contributor={contributor}
+                          key={login}
+                          contributor={{
+                            login,
+                            avatar_url: `https://avatars.githubusercontent.com/u/${contributor.githubUserId || login}`,
+                            totalCommits: contributor.totalCommits,
+                            totalPrs: contributor.totalPrs,
+                            activeRepositories: contributor.activeRepositories || [],
+                            linesOfCode: (contributor.linesAdded || 0) + (contributor.linesRemoved || 0),
+                            contributionScore: contributor.contributionScore || 0,
+                            rank: contributor.rank || 0,
+                          }}
                           onClick={() => {
                             setContributorMonth(dashboardMonth);
-                            navigate(`/contributor/${contributor.login}/${urlFormattedMonth}`);
+                            navigate(`/contributor/${login}/${urlFormattedMonth}`);
                           }}
                         />
                       ))}
                     </motion.div>
                   </motion.div>
-                )}
+                ) : null}
               </AnimatePresence>
             </div>
           </motion.div>
