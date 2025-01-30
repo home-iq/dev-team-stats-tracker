@@ -53,6 +53,7 @@ interface Activity {
   date: string;
   linesAdded: number;
   linesRemoved: number;
+  url?: string;
 }
 
 interface CommitResponse {
@@ -102,6 +103,18 @@ interface ContributorDetailProps {
   lastActive?: string;
   contributorRecords: Record<string, ContributorData>;
 }
+
+const formatTimestamp = (timestamp: string | undefined, format: 'date' | 'time' | 'full'): string => {
+  if (!timestamp) return 'Unknown';
+  const utcDate = new Date(timestamp + 'Z'); // Explicitly mark as UTC
+  return formatInTimeZone(
+    utcDate,
+    'America/New_York',
+    format === 'date' ? 'MMM d' :
+    format === 'time' ? 'h:mm a \'EST\'' :
+    'MMM d, h:mm a \'EST\''
+  );
+};
 
 export const ContributorDetail = ({ 
   login, 
@@ -307,10 +320,10 @@ export const ContributorDetail = ({
             <div className="ml-4">
               <h2 className="text-3xl font-bold mb-1.5 text-gradient">{contributor.login || login}</h2>
               <div className="space-y-0.5">
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-1">
                   <span className="text-sm text-muted-foreground">Last Active</span>
-                  <Badge variant="secondary" className="neo-blur">
-                    {formattedLastActive}
+                  <Badge variant="secondary" className="neo-blur text-xs whitespace-nowrap">
+                    {formatTimestamp(lastActive, 'full')}
                   </Badge>
                 </div>
                 <div className="flex items-center gap-2">
@@ -384,7 +397,7 @@ export const ContributorDetail = ({
 
       <Card className="glass-morphism overflow-hidden">
         <ScrollArea className="h-[calc(100vh-400px)]">
-          <div className="px-6 py-4 space-y-2">
+          <div className="px-4 md:px-6 py-4 space-y-2">
             {isLoading ? (
               <>
                 <Shimmer />
@@ -394,36 +407,54 @@ export const ContributorDetail = ({
                 <Shimmer />
               </>
             ) : activities?.map((activity) => (
-              <Card key={activity.id} className="p-4 neo-blur overflow-hidden w-full">
-                <div className="md:hidden flex flex-col gap-2 w-full">
-                  <div className="flex items-center justify-between gap-2 w-full">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
+              <Card key={activity.id} className="p-3 md:p-4 neo-blur overflow-hidden w-full">
+                <div className="md:hidden w-full">
+                  <div className="flex gap-2 w-full overflow-hidden">
+                    <div className="flex items-center self-stretch shrink-0">
                       {activity.type === "commit" ? (
-                        <GitCommit className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <GitCommit className="h-4 w-4 text-muted-foreground" />
                       ) : (
-                        <GitPullRequest className="h-4 w-4 text-muted-foreground shrink-0" />
+                        <GitPullRequest className="h-4 w-4 text-muted-foreground" />
                       )}
-                      <div className="min-w-0 flex-1">
-                        <h4 className="font-medium truncate">{activity.title}</h4>
-                        <p className="text-sm text-muted-foreground truncate">{activity.repo}</p>
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex flex-col space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="min-w-0 flex-1">
+                            <h4 className="font-medium break-words">{activity.title}</h4>
+                            <p className="text-sm text-muted-foreground truncate">{activity.repo}</p>
+                          </div>
+                          <div className="flex flex-col items-end gap-0.5 shrink-0">
+                            <Badge variant="secondary" className="neo-blur text-xs whitespace-nowrap">
+                              {formatTimestamp(activity.date, 'date')}
+                            </Badge>
+                            <span className="text-xs text-muted-foreground whitespace-nowrap">
+                              {formatTimestamp(activity.date, 'time')}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-start justify-between gap-4">
+                          <div className="min-w-0 flex-1">
+                            {activity.url ? (
+                              <a 
+                                href={activity.url} 
+                                target="_blank" 
+                                rel="noopener noreferrer"
+                                className="text-sm text-muted-foreground break-words hover:text-primary transition-colors inline-block"
+                              >
+                                {activity.summary}
+                              </a>
+                            ) : (
+                              <p className="text-sm text-muted-foreground break-words">{activity.summary}</p>
+                            )}
+                          </div>
+                          <div className="flex items-center shrink-0 ml-4 text-right space-x-2">
+                            <span className="text-sm font-bold text-emerald-400 whitespace-nowrap">+{activity.linesAdded.toLocaleString()}</span>
+                            <span className="text-sm font-bold text-red-400 whitespace-nowrap">-{activity.linesRemoved.toLocaleString()}</span>
+                          </div>
+                        </div>
                       </div>
-                    </div>
-
-                    <div className="flex flex-col items-end gap-1 shrink-0 ml-2">
-                      <Badge variant="secondary" className="neo-blur text-xs whitespace-nowrap">
-                        {format(parseISO(activity.date), 'MMM d')}
-                      </Badge>
-                      <span className="text-xs text-muted-foreground whitespace-nowrap">
-                        {formatInTimeZone(parseISO(activity.date), 'America/New_York', 'h:mm a')} EST
-                      </span>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between gap-2 w-full">
-                    <p className="text-sm text-muted-foreground truncate flex-1">{activity.summary}</p>
-                    <div className="flex flex-col items-end shrink-0 ml-2">
-                      <span className="text-sm font-bold text-emerald-400 whitespace-nowrap">+{activity.linesAdded.toLocaleString()}</span>
-                      <span className="text-sm font-bold text-red-400 whitespace-nowrap">-{activity.linesRemoved.toLocaleString()}</span>
                     </div>
                   </div>
                 </div>
@@ -438,17 +469,28 @@ export const ContributorDetail = ({
                     <h4 className="font-medium truncate">{activity.title}</h4>
                     <p className="text-sm text-muted-foreground truncate">{activity.repo}</p>
                   </div>
-                  <p className="text-sm text-muted-foreground truncate">{activity.summary}</p>
-                  <div className="flex items-center shrink-0">
-                    <span className="text-sm font-bold text-emerald-400 w-16 text-right">+{activity.linesAdded.toLocaleString()}</span>
-                    <span className="text-sm font-bold text-red-400 w-16 text-right">-{activity.linesRemoved.toLocaleString()}</span>
+                  {activity.url ? (
+                    <a 
+                      href={activity.url} 
+                      target="_blank" 
+                      rel="noopener noreferrer"
+                      className="text-sm text-muted-foreground truncate hover:text-primary transition-colors"
+                    >
+                      {activity.summary}
+                    </a>
+                  ) : (
+                    <p className="text-sm text-muted-foreground truncate">{activity.summary}</p>
+                  )}
+                  <div className="flex items-center shrink-0 text-right space-x-2">
+                    <span className="text-sm font-bold text-emerald-400 whitespace-nowrap">+{activity.linesAdded.toLocaleString()}</span>
+                    <span className="text-sm font-bold text-red-400 whitespace-nowrap">-{activity.linesRemoved.toLocaleString()}</span>
                   </div>
-                  <div className="flex flex-col items-end shrink-0">
-                    <Badge variant="secondary" className="neo-blur text-xs">
-                      {format(parseISO(activity.date), 'MMM d')}
+                  <div className="flex flex-col items-end shrink-0 ml-6">
+                    <Badge variant="secondary" className="neo-blur text-xs whitespace-nowrap">
+                      {formatTimestamp(activity.date, 'date')}
                     </Badge>
-                    <span className="text-xs text-muted-foreground mt-1">
-                      {formatInTimeZone(parseISO(activity.date), 'America/New_York', 'h:mm a')} EST
+                    <span className="text-xs text-muted-foreground whitespace-nowrap">
+                      {formatTimestamp(activity.date, 'time')}
                     </span>
                   </div>
                 </div>
