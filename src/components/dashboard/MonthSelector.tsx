@@ -7,11 +7,24 @@ interface MonthSelectorProps {
   currentMonth: Date;
   onPreviousMonth: () => void;
   onNextMonth: () => void;
+  availableMonths: Date[];
 }
 
-export const MonthSelector = ({ currentMonth, onPreviousMonth, onNextMonth }: MonthSelectorProps) => {
+export const MonthSelector = ({ 
+  currentMonth, 
+  onPreviousMonth, 
+  onNextMonth,
+  availableMonths 
+}: MonthSelectorProps) => {
   const isMobile = useIsMobile();
   const formattedMonth = format(currentMonth, "MMMM yyyy");
+
+  const currentIndex = availableMonths.findIndex(
+    m => format(m, "yyyy-MM") === format(currentMonth, "yyyy-MM")
+  );
+
+  const hasPrevious = currentIndex < availableMonths.length - 1;
+  const hasNext = currentIndex > 0;
 
   return (
     <div className={`inline-flex items-center gap-4 glass-morphism rounded-lg p-3 ${
@@ -23,6 +36,7 @@ export const MonthSelector = ({ currentMonth, onPreviousMonth, onNextMonth }: Mo
         variant="ghost"
         size="icon"
         onClick={onPreviousMonth}
+        disabled={!hasPrevious}
         className="h-10 w-10 hover:bg-white/10"
       >
         <ChevronLeft className="h-5 w-5" />
@@ -34,7 +48,7 @@ export const MonthSelector = ({ currentMonth, onPreviousMonth, onNextMonth }: Mo
         variant="ghost"
         size="icon"
         onClick={onNextMonth}
-        disabled={isFuture(subMonths(currentMonth, -1))}
+        disabled={!hasNext}
         className="h-11 w-11 hover:bg-white/10"
       >
         <ChevronRight className="h-5 w-5" />

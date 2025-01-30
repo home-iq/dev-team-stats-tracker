@@ -16,6 +16,7 @@ interface Contributor {
   githubUserId?: string;
   totalCommits: number;
   totalPrs: number;
+  mergedPrs: number;
   activeRepositories: string[];
   linesAdded: number;
   linesRemoved: number;
@@ -48,7 +49,9 @@ const Index = () => {
   const isMobile = useIsMobile();
   const [isLoading, setIsLoading] = useState(true);
   const [showContent, setShowContent] = useState(false);
-  const [monthData, setMonthData] = useState<Month | null>(null);
+  const [monthsData, setMonthsData] = useState<Month[]>([]);
+  const [currentMonthData, setCurrentMonthData] = useState<Month | null>(null);
+  const [availableMonths, setAvailableMonths] = useState<Date[]>([]);
   const [dashboardMonth, setDashboardMonth] = useState(() => {
     if (!contributorId && month) {
       try {
@@ -76,77 +79,65 @@ const Index = () => {
   const formattedMonth = format(currentMonth, "MMMM yyyy");
   const urlFormattedMonth = format(currentMonth, "MMMM-yyyy").toLowerCase();
 
+  // Fetch all months data at once
   useEffect(() => {
-    let mounted = true;
-    let loadingTimeout: NodeJS.Timeout;
-    let showContentTimeout: NodeJS.Timeout;
-
-    const fetchMonthData = async () => {
+    const fetchAllMonthsData = async () => {
       try {
         const { data, error } = await supabase
           .from('Month')
           .select('*')
-          .order('date', { ascending: false })
-          .limit(1);
+          .order('date', { ascending: false });
 
         if (error) {
           throw error;
         }
 
-        if (data && data.length > 0 && mounted) {
-          setMonthData(data[0]);
+        if (data) {
+          setMonthsData(data);
+          setAvailableMonths(data.map(m => new Date(m.date)));
           
-          // Ensure loading animation shows for at least 1.2 seconds
+          // Set initial month data
+          const monthStart = startOfMonth(currentMonth);
+          const initialMonthData = data.find(
+            m => format(new Date(m.date), "yyyy-MM") === format(monthStart, "yyyy-MM")
+          );
+          
+          if (initialMonthData) {
+            setCurrentMonthData(initialMonthData);
+          } else {
+            setCurrentMonthData(null);
+          }
+
+          // Add delay for smooth loading animation
           const loadingEndTime = Math.max(1200 - (Date.now() - startTime), 0);
-          loadingTimeout = setTimeout(() => {
-            if (mounted) {
-              setIsLoading(false);
-              // Add a small delay before showing content for smooth transition
-              showContentTimeout = setTimeout(() => {
-                if (mounted) {
-                  setShowContent(true);
-                }
-              }, 300);
-            }
+          setTimeout(() => {
+            setIsLoading(false);
+            setTimeout(() => {
+              setShowContent(true);
+            }, 300);
           }, loadingEndTime);
         }
       } catch (error) {
-        console.error('Error fetching month data:', error);
-        if (mounted) {
-          setIsLoading(false);
-          setShowContent(true);
-        }
+        console.error('Error fetching months data:', error);
+        setIsLoading(false);
+        setShowContent(true);
       }
     };
 
     const startTime = Date.now();
-    fetchMonthData();
-
-    return () => {
-      mounted = false;
-      if (loadingTimeout) clearTimeout(loadingTimeout);
-      if (showContentTimeout) clearTimeout(showContentTimeout);
-    };
+    setIsLoading(true);
+    setShowContent(false);
+    fetchAllMonthsData();
   }, []);
 
-  // Update month states when URL changes
+  // Update current month data when month changes
   useEffect(() => {
-    if (month) {
-      try {
-        const parsedMonth = parse(month, 'MMMM-yyyy', new Date());
-        if (contributorId) {
-          setContributorMonth(parsedMonth);
-        } else {
-          setDashboardMonth(parsedMonth);
-        }
-      } catch {
-        // Invalid month format, keep current month
-      }
-    } else if (!contributorId) {
-      // No month in URL and on dashboard, reset to current month
-      setDashboardMonth(new Date());
-    }
-  }, [month, contributorId]);
+    const monthStart = startOfMonth(currentMonth);
+    const monthData = monthsData.find(
+      m => format(new Date(m.date), "yyyy-MM") === format(monthStart, "yyyy-MM")
+    );
+    setCurrentMonthData(monthData || null);
+  }, [currentMonth, monthsData]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -179,19 +170,33 @@ const Index = () => {
     }
   };
 
+  // Update handlePreviousMonth and handleNextMonth
   const handlePreviousMonth = () => {
-    const newMonth = subMonths(currentMonth, 1);
-    handleMonthChange(newMonth);
+    const currentIndex = availableMonths.findIndex(
+      m => format(m, "yyyy-MM") === format(currentMonth, "yyyy-MM")
+    );
+    
+    if (currentIndex < availableMonths.length - 1) {
+      handleMonthChange(availableMonths[currentIndex + 1]);
+    }
   };
 
   const handleNextMonth = () => {
-    const nextMonth = startOfMonth(subMonths(new Date(), -1));
-    if (!isFuture(currentMonth)) {
-      const proposedNext = subMonths(currentMonth, -1);
-      if (!isFuture(proposedNext)) {
-        handleMonthChange(proposedNext);
-      }
+    const currentIndex = availableMonths.findIndex(
+      m => format(m, "yyyy-MM") === format(currentMonth, "yyyy-MM")
+    );
+    
+    if (currentIndex > 0) {
+      handleMonthChange(availableMonths[currentIndex - 1]);
     }
+  };
+
+  // Pass available months to MonthSelector
+  const monthSelectorProps = {
+    currentMonth,
+    onPreviousMonth: handlePreviousMonth,
+    onNextMonth: handleNextMonth,
+    availableMonths,
   };
 
   const container = {
@@ -240,19 +245,13 @@ const Index = () => {
           >
             <div className="max-w-7xl mx-auto">
               <Header 
-                currentMonth={dashboardMonth}
-                onPreviousMonth={handlePreviousMonth}
-                onNextMonth={handleNextMonth}
+                {...monthSelectorProps}
                 onMonthChange={handleMonthChange}
               />
               
               {isMobile && (
                 <div className="mb-8">
-                  <MonthSelector
-                    currentMonth={dashboardMonth}
-                    onPreviousMonth={handlePreviousMonth}
-                    onNextMonth={handleNextMonth}
-                  />
+                  <MonthSelector {...monthSelectorProps} />
                 </div>
               )}
 
@@ -265,7 +264,7 @@ const Index = () => {
                   >
                     <LoadingSpinner />
                   </motion.div>
-                ) : showContent && monthData ? (
+                ) : showContent && currentMonthData ? (
                   <motion.div 
                     key="content"
                   >
@@ -274,7 +273,7 @@ const Index = () => {
                       animate={{ opacity: 1 }}
                       transition={{ duration: 0.3 }}
                     >
-                      <OverallStats overall={monthData.stats.overall} />
+                      <OverallStats overall={currentMonthData.stats.overall} />
                     </motion.div>
                     <motion.div 
                       className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
@@ -282,12 +281,10 @@ const Index = () => {
                       initial="hidden"
                       animate="show"
                     >
-                      {monthData.stats.contributors && 
-                        Object.entries(monthData.stats.contributors)
+                      {currentMonthData.stats.contributors && 
+                        Object.entries(currentMonthData.stats.contributors)
                           .sort(([, a], [, b]) => {
-                            // First sort by contribution score (descending)
                             const scoreCompare = (b.contributionScore || 0) - (a.contributionScore || 0);
-                            // If scores are equal, sort by login (ascending)
                             if (scoreCompare === 0) {
                               return a.login?.localeCompare(b.login || '') || 0;
                             }
@@ -301,6 +298,7 @@ const Index = () => {
                                 avatar_url: `https://avatars.githubusercontent.com/u/${contributor.githubUserId || login}`,
                                 totalCommits: contributor.totalCommits,
                                 totalPrs: contributor.totalPrs,
+                                mergedPrs: contributor.mergedPrs,
                                 activeRepositories: contributor.activeRepositories || [],
                                 linesOfCode: (contributor.linesAdded || 0) + (contributor.linesRemoved || 0),
                                 contributionScore: contributor.contributionScore || 0,
@@ -331,7 +329,7 @@ const Index = () => {
             <ContributorDetail
               login={contributorId}
               currentMonth={contributorMonth}
-              monthData={monthData}
+              monthData={currentMonthData}
               onPreviousMonth={handlePreviousMonth}
               onNextMonth={handleNextMonth}
               onBack={() => {

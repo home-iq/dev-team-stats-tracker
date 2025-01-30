@@ -10,6 +10,7 @@ interface ContributorCardProps {
     avatar_url: string;
     totalCommits: number;
     totalPrs: number;
+    mergedPrs: number;
     activeRepositories: string[];
     linesOfCode: number;
     contributionScore: number;
