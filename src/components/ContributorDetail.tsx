@@ -397,7 +397,7 @@ export const ContributorDetail = ({
 
       <Card className="glass-morphism overflow-hidden">
         <ScrollArea className="h-[calc(100vh-400px)]">
-          <div className="px-4 md:px-6 py-4 space-y-2">
+          <div className="p-4 space-y-2 max-w-full">
             {isLoading ? (
               <>
                 <Shimmer />
@@ -407,10 +407,22 @@ export const ContributorDetail = ({
                 <Shimmer />
               </>
             ) : activities?.map((activity) => (
-              <Card key={activity.id} className="p-3 md:p-4 neo-blur overflow-hidden w-full">
-                <div className="md:hidden w-full">
-                  <div className="flex gap-2 w-full overflow-hidden">
-                    <div className="flex items-center self-stretch shrink-0">
+              <Card key={activity.id} className="neo-blur overflow-hidden">
+                <div className="md:hidden p-3">
+                  {/* Meta Info Row */}
+                  <div className="flex items-center gap-2 mb-3 overflow-hidden">
+                    <Badge variant="secondary" className="neo-blur text-xs shrink-0">
+                      {formatTimestamp(activity.date, 'full')}
+                    </Badge>
+                    <div className="flex items-center gap-1 shrink-0">
+                      <span className="font-medium text-emerald-400">+{activity.linesAdded.toLocaleString()}</span>
+                      <span className="font-medium text-red-400">-{activity.linesRemoved.toLocaleString()}</span>
+                    </div>
+                  </div>
+
+                  {/* Content */}
+                  <div className="flex gap-3 min-w-0">
+                    <div className="shrink-0 mt-1">
                       {activity.type === "commit" ? (
                         <GitCommit className="h-4 w-4 text-muted-foreground" />
                       ) : (
@@ -418,48 +430,30 @@ export const ContributorDetail = ({
                       )}
                     </div>
                     <div className="min-w-0 flex-1">
-                      <div className="flex flex-col space-y-2">
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="min-w-0 flex-1">
-                            <h4 className="font-medium break-words">{activity.title}</h4>
-                            <p className="text-sm text-muted-foreground truncate">{activity.repo}</p>
-                          </div>
-                          <div className="flex flex-col items-end gap-0.5 shrink-0">
-                            <Badge variant="secondary" className="neo-blur text-xs whitespace-nowrap">
-                              {formatTimestamp(activity.date, 'date')}
-                            </Badge>
-                            <span className="text-xs text-muted-foreground whitespace-nowrap">
-                              {formatTimestamp(activity.date, 'time')}
-                            </span>
-                          </div>
+                      <div className="flex flex-col gap-2">
+                        <div>
+                          <h4 className="font-medium break-words">{activity.title}</h4>
+                          <p className="text-sm text-muted-foreground truncate">{activity.repo}</p>
                         </div>
-
-                        <div className="flex items-start justify-between gap-4">
-                          <div className="min-w-0 flex-1">
-                            {activity.url ? (
-                              <a 
-                                href={activity.url} 
-                                target="_blank" 
-                                rel="noopener noreferrer"
-                                className="text-sm text-muted-foreground break-words hover:text-primary transition-colors inline-block"
-                              >
-                                {activity.summary}
-                              </a>
-                            ) : (
-                              <p className="text-sm text-muted-foreground break-words">{activity.summary}</p>
-                            )}
-                          </div>
-                          <div className="flex items-center shrink-0 ml-4 text-right space-x-2">
-                            <span className="text-sm font-bold text-emerald-400 whitespace-nowrap">+{activity.linesAdded.toLocaleString()}</span>
-                            <span className="text-sm font-bold text-red-400 whitespace-nowrap">-{activity.linesRemoved.toLocaleString()}</span>
-                          </div>
-                        </div>
+                        
+                        {activity.url ? (
+                          <a 
+                            href={activity.url} 
+                            target="_blank" 
+                            rel="noopener noreferrer"
+                            className="text-sm text-muted-foreground break-words hover:text-primary transition-colors"
+                          >
+                            {activity.summary}
+                          </a>
+                        ) : (
+                          <p className="text-sm text-muted-foreground break-words">{activity.summary}</p>
+                        )}
                       </div>
                     </div>
                   </div>
                 </div>
 
-                <div className="hidden md:grid md:grid-cols-[auto_120px_1fr_auto_auto] md:gap-4 md:items-center">
+                <div className="hidden md:grid md:grid-cols-[auto_120px_1fr_auto_auto] md:gap-4 md:items-center md:p-4">
                   {activity.type === "commit" ? (
                     <GitCommit className="h-4 w-4 text-muted-foreground shrink-0" />
                   ) : (
