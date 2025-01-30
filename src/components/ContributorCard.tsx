@@ -1,22 +1,19 @@
 import { Avatar } from "@/components/ui/avatar";
 import { Card } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { ArrowUpRight, GitCommit, GitPullRequest, Star, Code2 } from "lucide-react";
+import { GitCommit, GitPullRequest, Star, Code2 } from "lucide-react";
 import { motion } from "framer-motion";
-import { formatInTimeZone } from "date-fns-tz";
-import { parseISO } from "date-fns";
 
 interface ContributorCardProps {
   contributor: {
     login: string;
     avatar_url: string;
-    contributions: number;
-    pullRequests: number;
-    commits: number;
-    repositories: number;
+    totalCommits: number;
+    totalPrs: number;
+    activeRepositories: string[];
     linesOfCode: number;
+    contributionScore: number;
     rank: number;
-    lastActivity: string;
   };
   onClick: () => void;
 }
@@ -46,36 +43,29 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
             <div className="flex flex-wrap gap-2 mb-4">
               <Badge variant="secondary" className="flex items-center gap-1 neo-blur">
                 <GitCommit className="w-3 h-3" />
-                {contributor.commits} commits
+                {contributor.totalCommits} commits
               </Badge>
               <Badge variant="secondary" className="flex items-center gap-1 neo-blur">
                 <GitPullRequest className="w-3 h-3" />
-                {contributor.pullRequests} PRs
+                {contributor.totalPrs} PRs
               </Badge>
               <Badge variant="secondary" className="flex items-center gap-1 neo-blur">
                 <Star className="w-3 h-3" />
-                {contributor.repositories} repos
+                {contributor.activeRepositories.length} repos
               </Badge>
               <Badge variant="secondary" className="flex items-center gap-1 neo-blur">
                 <Code2 className="w-3 h-3" />
-                {contributor.linesOfCode} lines
+                {contributor.linesOfCode.toLocaleString()} lines
               </Badge>
             </div>
           </div>
-        </div>
-        
-        <div className="text-xs text-muted-foreground mt-4">
-          Last Activity
-          <span className="float-right">
-            {formatInTimeZone(parseISO(contributor.lastActivity), 'America/New_York', 'MMM d @ h:mm a')} EST
-          </span>
         </div>
 
         <div className="mt-4 pt-4 border-t border-white/10">
           <div className="text-sm text-muted-foreground">
             Contribution Score
             <span className="float-right font-semibold text-foreground">
-              {contributor.contributions}
+              {contributor.contributionScore}
             </span>
           </div>
         </div>

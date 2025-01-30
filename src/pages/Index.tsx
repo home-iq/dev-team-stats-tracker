@@ -1,13 +1,13 @@
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
 import { ContributorCard } from "@/components/ContributorCard";
 import { ContributorDetail } from "@/components/ContributorDetail";
-import { format, subMonths, startOfMonth, isFuture, parse, parseISO } from "date-fns";
+import { format, subMonths, startOfMonth, isFuture, parse } from "date-fns";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { AnimatePresence, motion } from "framer-motion";
 import { Header } from "@/components/dashboard/Header";
 import { MonthSelector } from "@/components/dashboard/MonthSelector";
 import { useNavigate, useParams } from "react-router-dom";
+import { getSortedContributors } from "@/data/contributors";
 
 const Index = () => {
   const navigate = useNavigate();
@@ -107,30 +107,8 @@ const Index = () => {
     }
   };
 
-  const { data: contributors, isLoading } = useQuery({
-    queryKey: ["contributors", formattedMonth],
-    queryFn: async () => {
-      console.log(`Fetching data for ${formattedMonth}`);
-      return Array.from({ length: 8 }, (_, i) => ({
-        login: `user${i}`,
-        avatar_url: `https://avatars.githubusercontent.com/u/${i}`,
-        contributions: Math.floor(Math.random() * 1000),
-        pullRequests: Math.floor(Math.random() * 100),
-        commits: Math.floor(Math.random() * 500),
-        repositories: Math.floor(Math.random() * 20),
-        linesOfCode: Math.floor(Math.random() * 50000),
-        lastActivity: new Date(Date.now() - Math.floor(Math.random() * 7 * 24 * 60 * 60 * 1000)).toISOString(),
-        rank: 0,
-      }));
-    },
-  });
-
-  const rankedContributors = contributors
-    ?.sort((a, b) => b.contributions - a.contributions)
-    .map((contributor, index) => ({
-      ...contributor,
-      rank: index + 1,
-    }));
+  // Get sorted contributors data
+  const contributors = getSortedContributors();
 
   return (
     <div className="min-h-screen p-6 md:p-8">
@@ -162,7 +140,7 @@ const Index = () => {
               )}
 
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {rankedContributors?.map((contributor) => (
+                {contributors.map((contributor) => (
                   <ContributorCard
                     key={contributor.login}
                     contributor={contributor}
