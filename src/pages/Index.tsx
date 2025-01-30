@@ -338,6 +338,7 @@ const Index = () => {
               monthData={currentMonthData}
               onPreviousMonth={handlePreviousMonth}
               onNextMonth={handleNextMonth}
+              availableMonths={availableMonths}
               onBack={() => {
                 const dashboardMonthStr = format(dashboardMonth, "MMMM-yyyy").toLowerCase();
                 if (format(dashboardMonth, "yyyy-MM") !== format(new Date(), "yyyy-MM")) {

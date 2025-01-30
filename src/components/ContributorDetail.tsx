@@ -48,6 +48,7 @@ interface ContributorDetailProps {
   onPreviousMonth: () => void;
   onNextMonth: () => void;
   onBack: () => void;
+  availableMonths: Date[];
 }
 
 export const ContributorDetail = ({ 
@@ -56,7 +57,8 @@ export const ContributorDetail = ({
   currentMonth,
   monthData,
   onPreviousMonth,
-  onNextMonth 
+  onNextMonth,
+  availableMonths
 }: ContributorDetailProps) => {
   const isMobile = useIsMobile();
 
@@ -144,6 +146,7 @@ export const ContributorDetail = ({
               currentMonth={currentMonth}
               onPreviousMonth={onPreviousMonth}
               onNextMonth={onNextMonth}
+              availableMonths={availableMonths}
             />
           )}
         </div>
@@ -153,6 +156,7 @@ export const ContributorDetail = ({
               currentMonth={currentMonth}
               onPreviousMonth={onPreviousMonth}
               onNextMonth={onNextMonth}
+              availableMonths={availableMonths}
             />
           </div>
         )}
