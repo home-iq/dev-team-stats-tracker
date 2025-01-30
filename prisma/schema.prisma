@@ -26,7 +26,7 @@ model Team {
 model Repo {
   id           String        @id @default(uuid())
   name         String
-  githubRepoId String        @unique
+  githubRepoId BigInt       @unique
   url          String?
   teamId       String
   createdAt    DateTime      @default(now())
@@ -42,15 +42,15 @@ model Repo {
 model Contributor {
   id           String        @id @default(uuid())
   name         String
-  githubUserId String        @unique
-  githubLogin  String        @unique
+  githubUserId BigInt       @unique
+  githubLogin  String       @unique
   avatarUrl    String?
-  cursorEmail  String?       // Optional email for linking to Cursor data
+  cursorEmail  String?      // Optional email for linking to Cursor data
   teamId       String
-  createdAt    DateTime      @default(now())
-  updatedAt    DateTime      @updatedAt
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
   commits      Commit[]
-  team         Team          @relation(fields: [teamId], references: [id])
+  team         Team         @relation(fields: [teamId], references: [id])
   events       Event[]
   pullRequests PullRequest[]
 
@@ -82,8 +82,8 @@ model Commit {
 }
 
 model PullRequest {
-  id           String      @id @default(uuid())
-  githubPrId   Int         @unique
+  id           String   @id @default(uuid())
+  githubPrId   BigInt   @unique
   title        String
   description  String?
   status       PrStatus
@@ -91,10 +91,10 @@ model PullRequest {
   isMerged     Boolean     @default(false)
   sourceBranch String
   targetBranch String
-  openedAt     DateTime?    // When the PR was opened on GitHub
+  openedAt     DateTime?
   mergedAt     DateTime?
   closedAt     DateTime?
-  url          String?     // GitHub URL for the pull request
+  url          String?
   linesAdded   Int
   linesDeleted Int
   commits      Int
