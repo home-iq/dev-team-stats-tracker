@@ -100,6 +100,21 @@ interface Database {
           updatedAt: string
         }
       }
+      Event: {
+        Row: {
+          id: string
+          githubEventId: string
+          type: string
+          action: string | null
+          details: Json | null
+          rawJson: Json
+          pullRequestId: string | null
+          contributorId: string
+          repoId: string
+          createdAt: string
+          updatedAt: string
+        }
+      }
     }
   }
 }
@@ -110,6 +125,7 @@ interface GitHubCommit {
   sha: string
   message: string
   repository: string
+  githubRepoId: string
   author: {
     id: number
     username: string
@@ -194,38 +210,33 @@ async function getOrCreateContributor(
   name: string, 
   avatarUrl?: string
 ) {
-  const { data: existing } = await supabase
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
     .from('Contributor')
+    .upsert(
+      {
+        teamId: teamId,
+        githubUserId: githubUserId,
+        githubLogin: login,
+        name,
+        avatarUrl: avatarUrl,
+        updatedAt: now,
+        createdAt: now
+      },
+      {
+        onConflict: 'githubUserId',
+        ignoreDuplicates: false
+      }
+    )
     .select()
-    .eq('githubUserId', githubUserId)
-    .single()
+    .single();
 
-  if (existing) {
-    const { data } = await supabase
-      .from('Contributor')
-      .update({ 
-        githubLogin: login, 
-        name, 
-        avatarUrl: avatarUrl 
-      })
-      .eq('githubUserId', githubUserId)
-      .select()
-      .single()
-    return data
+  if (error) {
+    console.error('Error upserting contributor:', error);
+    return null;
   }
 
-  const { data } = await supabase
-    .from('Contributor')
-    .insert({
-      teamId: teamId,
-      githubUserId: githubUserId,
-      githubLogin: login,
-      name,
-      avatarUrl: avatarUrl
-    })
-    .select()
-    .single()
-  return data
+  return data;
 }
 
 // Get or create a repository
@@ -236,36 +247,32 @@ async function getOrCreateRepo(
   githubRepoId: string, 
   url?: string
 ) {
-  const { data: existing } = await supabase
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
     .from('Repo')
+    .upsert(
+      {
+        teamId: teamId,
+        name: repoName,
+        githubRepoId: githubRepoId,
+        url,
+        updatedAt: now,
+        createdAt: now
+      },
+      {
+        onConflict: 'githubRepoId',
+        ignoreDuplicates: false
+      }
+    )
     .select()
-    .eq('githubRepoId', githubRepoId)
-    .single()
+    .single();
 
-  if (existing) {
-    const { data } = await supabase
-      .from('Repo')
-      .update({ 
-        name: repoName, 
-        url 
-      })
-      .eq('githubRepoId', githubRepoId)
-      .select()
-      .single()
-    return data
+  if (error) {
+    console.error('Error upserting repo:', error);
+    return null;
   }
 
-  const { data } = await supabase
-    .from('Repo')
-    .insert({
-      teamId: teamId,
-      name: repoName,
-      githubRepoId: githubRepoId,
-      url
-    })
-    .select()
-    .single()
-  return data
+  return data;
 }
 
 // Get or create a team
@@ -276,53 +283,31 @@ async function getOrCreateTeam(
 ) {
   console.log('Creating/getting team:', { githubOrgId, githubOrgName });
   
-  const { data: existing, error: selectError } = await supabase
+  const now = new Date().toISOString();
+  const { data, error } = await supabase
     .from('Team')
-    .select()
-    .eq('githubOrgId', githubOrgId)
-    .single();
-
-  if (selectError) {
-    console.error('Error selecting team:', selectError);
-    if (selectError.code === '42P01') {
-      throw new Error('Database table "team" does not exist. Please run migrations first.');
-    }
-  }
-
-  if (existing) {
-    console.log('Found existing team:', existing);
-    const { data, error: updateError } = await supabase
-      .from('Team')
-      .update({ 
+    .upsert(
+      {
+        id: crypto.randomUUID(),
+        githubOrgId: githubOrgId,
         githubOrgName: githubOrgName,
-        name: githubOrgName
-      })
-      .eq('githubOrgId', githubOrgId)
-      .select()
-      .single();
-
-    if (updateError) {
-      console.error('Error updating team:', updateError);
-      throw new Error('Failed to update team');
-    }
-    return data;
-  }
-
-  console.log('Creating new team');
-  const { data, error: insertError } = await supabase
-    .from('Team')
-    .insert({
-      githubOrgId: githubOrgId,
-      githubOrgName: githubOrgName,
-      name: githubOrgName
-    })
+        name: githubOrgName,
+        updatedAt: now,
+        createdAt: now
+      },
+      {
+        onConflict: 'githubOrgId',
+        ignoreDuplicates: false
+      }
+    )
     .select()
     .single();
 
-  if (insertError) {
-    console.error('Error inserting team:', insertError);
-    throw new Error('Failed to create team');
+  if (error) {
+    console.error('Error upserting team:', error);
+    throw new Error('Failed to upsert team');
   }
+
   return data;
 }
 
@@ -374,19 +359,34 @@ type JsonMonthStats = {
 async function updateMonthStats(
   supabase: SupabaseClient<Database>,
   teamId: string, 
-  date: Date, 
+  date: Date,
+  repo: { id: string, githubRepoId: string },  // Change to pass full repo object
   newCommits: GitHubCommit[] = [], 
   newPullRequest: GitHubPullRequest | null = null
 ) {
   const startOfMonth = new Date(date.getFullYear(), date.getMonth(), 1);
   
-  // Get or create month record with stats
-  const { data: monthRecord } = await supabase
+  console.log('Updating monthly stats for:', {
+    teamId,
+    repoId: repo.id,
+    githubRepoId: repo.githubRepoId,
+    date: startOfMonth.toISOString(),
+    commitsCount: newCommits.length,
+    hasPullRequest: !!newPullRequest
+  });
+  
+  // First get existing stats if any
+  const { data: monthRecord, error: monthError } = await supabase
     .from('Month')
     .select()
     .eq('teamId', teamId)
     .eq('date', startOfMonth.toISOString())
     .single();
+
+  if (monthError && !monthError.message.includes('No rows found')) {
+    console.error('Error fetching month record:', monthError);
+    return;
+  }
 
   const existingStats: JsonMonthStats = monthRecord?.stats as JsonMonthStats || {
     overall: {
@@ -406,20 +406,18 @@ async function updateMonthStats(
   for (const commit of newCommits) {
     if (!commit.author?.id || !commit.author.username) continue;
 
-    // Update repository stats
-    const repoId = commit.repository;
-    if (!existingStats.repositories[repoId]) {
-      existingStats.repositories[repoId] = {
-        name: commit.repository,
-        commits: 0,
-        totalPrs: 0,
-        mergedPrs: 0,
-        linesAdded: 0,
-        linesRemoved: 0,
-        activeContributors: 0
-      };
-    }
-    const repoStats = existingStats.repositories[repoId];
+    // Update repository stats using githubRepoId
+    const repoStats = existingStats.repositories[repo.githubRepoId] || {
+      name: commit.repository,
+      commits: 0,
+      totalPrs: 0,
+      mergedPrs: 0,
+      linesAdded: 0,
+      linesRemoved: 0,
+      activeContributors: 0
+    };
+    existingStats.repositories[repo.githubRepoId] = repoStats;
+    
     repoStats.commits++;
     repoStats.linesAdded += commit.stats?.additions || 0;
     repoStats.linesRemoved += commit.stats?.deletions || 0;
@@ -444,8 +442,8 @@ async function updateMonthStats(
     contributorStats.totalCommits++;
     contributorStats.linesAdded += commit.stats?.additions || 0;
     contributorStats.linesRemoved += commit.stats?.deletions || 0;
-    if (!contributorStats.activeRepositories.includes(repoId)) {
-      contributorStats.activeRepositories.push(repoId);
+    if (!contributorStats.activeRepositories.includes(repo.githubRepoId)) {
+      contributorStats.activeRepositories.push(repo.githubRepoId);
     }
 
     // Update overall stats
@@ -456,22 +454,20 @@ async function updateMonthStats(
 
   // Process new pull request
   if (newPullRequest) {
-    const repoId = newPullRequest.repository;
+    // Update repository stats using githubRepoId
+    const repoStats = existingStats.repositories[repo.githubRepoId] || {
+      name: newPullRequest.repository,
+      commits: 0,
+      totalPrs: 0,
+      mergedPrs: 0,
+      linesAdded: 0,
+      linesRemoved: 0,
+      activeContributors: 0
+    };
+    existingStats.repositories[repo.githubRepoId] = repoStats;
+    
     const userId = newPullRequest.user.id.toString();
 
-    // Update repository stats
-    if (!existingStats.repositories[repoId]) {
-      existingStats.repositories[repoId] = {
-        name: newPullRequest.repository,
-        commits: 0,
-        totalPrs: 0,
-        mergedPrs: 0,
-        linesAdded: 0,
-        linesRemoved: 0,
-        activeContributors: 0
-      };
-    }
-    const repoStats = existingStats.repositories[repoId];
     repoStats.totalPrs++;
     if (newPullRequest.merged) {
       repoStats.mergedPrs++;
@@ -501,8 +497,8 @@ async function updateMonthStats(
     }
     contributorStats.linesAdded += newPullRequest.additions;
     contributorStats.linesRemoved += newPullRequest.deletions;
-    if (!contributorStats.activeRepositories.includes(repoId)) {
-      contributorStats.activeRepositories.push(repoId);
+    if (!contributorStats.activeRepositories.includes(repo.githubRepoId)) {
+      contributorStats.activeRepositories.push(repo.githubRepoId);
     }
 
     // Update overall stats
@@ -520,7 +516,7 @@ async function updateMonthStats(
   // Calculate contribution scores
   const allContributorStats = Object.entries(existingStats.contributors).map(([userId, stats]) => ({
     githubUserId: userId,
-    ...stats,  // stats already includes login
+    ...stats,
     tabs: stats.tabs || 0,
     premiumRequests: stats.premiumRequests || 0
   }));
@@ -536,23 +532,38 @@ async function updateMonthStats(
   existingStats.overall.averageContributionScore = 
     scoreValues.length > 0 ? scoreValues.reduce((a, b) => a + b) / scoreValues.length : 0;
 
+  console.log('Final stats to save:', existingStats);
+
   // Update the month record
   if (monthRecord) {
-    await supabase
+    const { error: updateError } = await supabase
       .from('Month')
       .update({
         stats: existingStats as Json,
         updatedAt: new Date().toISOString()
       })
       .eq('id', monthRecord.id);
+
+    if (updateError) {
+      console.error('Error updating month stats:', updateError);
+    } else {
+      console.log('Successfully updated month stats');
+    }
   } else {
-    await supabase
+    const { error: insertError } = await supabase
       .from('Month')
       .insert({
+        id: crypto.randomUUID(),
         teamId: teamId,
         date: startOfMonth.toISOString(),
         stats: existingStats as Json
       });
+
+    if (insertError) {
+      console.error('Error inserting month stats:', insertError);
+    } else {
+      console.log('Successfully created month stats');
+    }
   }
 }
 
@@ -564,21 +575,49 @@ async function createCommit(
   authorId: string, 
   githubOrgName: string
 ) {
-  const { data } = await supabase
+  const now = new Date().toISOString();
+  
+  console.log('Creating commit with data:', {
+    githubCommitId: commit.id,
+    message: commit.message,
+    linesAdded: commit.stats?.additions || 0,
+    linesDeleted: commit.stats?.deletions || 0,
+    committedAt: new Date(commit.timestamp).toISOString(),
+    url: `https://github.com/${githubOrgName}/${commit.repository}/commit/${commit.sha}`,
+    repoId: repoId,
+    authorId: authorId
+  });
+
+  const { data, error } = await supabase
     .from('Commit')
-    .insert({
-      githubCommitId: commit.id,
-      message: commit.message,
-      linesAdded: commit.stats?.additions || 0,
-      linesDeleted: commit.stats?.deletions || 0,
-      committedAt: new Date(commit.timestamp).toISOString(),
-      url: `https://github.com/${githubOrgName}/${commit.repository}/commit/${commit.sha}`,
-      repoId: repoId,
-      authorId: authorId
-    })
+    .upsert(
+      {
+        githubCommitId: commit.id,
+        message: commit.message,
+        linesAdded: commit.stats?.additions || 0,
+        linesDeleted: commit.stats?.deletions || 0,
+        committedAt: new Date(commit.timestamp).toISOString(),
+        url: `https://github.com/${githubOrgName}/${commit.repository}/commit/${commit.sha}`,
+        repoId: repoId,
+        authorId: authorId,
+        updatedAt: now,
+        createdAt: now
+      },
+      {
+        onConflict: 'githubCommitId',
+        ignoreDuplicates: false
+      }
+    )
     .select()
-    .single()
-  return data
+    .single();
+
+  if (error) {
+    console.error('Error upserting commit:', error);
+    return null;
+  }
+  
+  console.log('Successfully created/updated commit record:', data);
+  return data;
 }
 
 // Create or update pull request record
@@ -589,52 +628,49 @@ async function createOrUpdatePullRequest(
   authorId: string, 
   githubOrgName: string
 ) {
-  const status = pr.merged ? 'MERGED' : pr.state.toUpperCase() === 'OPEN' ? 'OPEN' : 'CLOSED'
+  const status = pr.merged ? 'MERGED' : pr.state.toUpperCase() === 'OPEN' ? 'OPEN' : 'CLOSED';
+  const now = new Date().toISOString();
   
-  const prData = {
-    githubPrId: pr.id,
-    title: pr.title,
-    description: pr.body || '',
-    status,
-    isDraft: pr.draft,
-    isMerged: pr.merged,
-    sourceBranch: pr.head.ref,
-    targetBranch: pr.base.ref,
-    openedAt: new Date(pr.created_at).toISOString(),
-    mergedAt: pr.merged_at ? new Date(pr.merged_at).toISOString() : null,
-    closedAt: pr.closed_at ? new Date(pr.closed_at).toISOString() : null,
-    url: `https://github.com/${githubOrgName}/${pr.repository}/pull/${pr.number}`,
-    linesAdded: pr.additions || 0,
-    linesDeleted: pr.deletions || 0,
-    commits: pr.commits || 0,
-    comments: (pr.comments || 0) + (pr.review_comments || 0),
-    reviews: pr.review_comments || 0,
-    authorId: authorId,
-    repoId: repoId
+  const { data, error } = await supabase
+    .from('PullRequest')
+    .upsert(
+      {
+        githubPrId: pr.id,
+        title: pr.title,
+        description: pr.body || '',
+        status,
+        isDraft: pr.draft,
+        isMerged: pr.merged,
+        sourceBranch: pr.head.ref,
+        targetBranch: pr.base.ref,
+        openedAt: new Date(pr.created_at).toISOString(),
+        mergedAt: pr.merged_at ? new Date(pr.merged_at).toISOString() : null,
+        closedAt: pr.closed_at ? new Date(pr.closed_at).toISOString() : null,
+        url: `https://github.com/${githubOrgName}/${pr.repository}/pull/${pr.number}`,
+        linesAdded: pr.additions || 0,
+        linesDeleted: pr.deletions || 0,
+        commits: pr.commits || 0,
+        comments: (pr.comments || 0) + (pr.review_comments || 0),
+        reviews: pr.review_comments || 0,
+        authorId: authorId,
+        repoId: repoId,
+        updatedAt: now,
+        createdAt: now
+      },
+      {
+        onConflict: 'githubPrId',
+        ignoreDuplicates: false
+      }
+    )
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error upserting pull request:', error);
+    return null;
   }
 
-  const { data: existing } = await supabase
-    .from('PullRequest')
-    .select()
-    .eq('githubPrId', pr.id)
-    .single()
-
-  if (existing) {
-    const { data } = await supabase
-      .from('PullRequest')
-      .update(prData)
-      .eq('githubPrId', pr.id)
-      .select()
-      .single()
-    return data
-  }
-
-  const { data } = await supabase
-    .from('PullRequest')
-    .insert(prData)
-    .select()
-    .single()
-  return data
+  return data;
 }
 
 interface ExecutionContext {
@@ -675,6 +711,62 @@ function isPrismaError(err: unknown): err is PrismaError {
   return typeof err === 'object' && err !== null && 'code' in err;
 }
 
+// Create event record
+async function createEvent(
+  supabase: ReturnType<typeof createClient<Database>>,
+  githubEventId: string,
+  type: string,
+  action: string | null,
+  details: Json | null,
+  rawJson: Json,
+  pullRequestId: string | null,
+  contributorId: string,
+  repoId: string
+) {
+  const now = new Date().toISOString();
+  
+  console.log('Creating event with data:', {
+    githubEventId,
+    type,
+    action,
+    details,
+    pullRequestId,
+    contributorId,
+    repoId
+  });
+
+  const { data, error } = await supabase
+    .from('Event')
+    .upsert(
+      {
+        githubEventId,
+        type,
+        action,
+        details,
+        rawJson,
+        pullRequestId,
+        contributorId,
+        repoId,
+        updatedAt: now,
+        createdAt: now
+      },
+      {
+        onConflict: 'githubEventId',
+        ignoreDuplicates: false
+      }
+    )
+    .select()
+    .single();
+
+  if (error) {
+    console.error('Error upserting event:', error);
+    return null;
+  }
+  
+  console.log('Successfully created/updated event record:', data);
+  return data;
+}
+
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const octokit = new Octokit({
@@ -692,7 +784,7 @@ const worker = {
     );
 
     // Helper functions that need access to octokit
-    async function fetchCommitDetails(owner: string, repo: string, sha: string) {
+    async function fetchCommitDetails(owner: string, repo: string, sha: string, repoId: string) {
       try {
         const response = await octokit.repos.getCommit({
           owner,
@@ -709,6 +801,7 @@ const worker = {
           sha,
           message: commitData.commit?.message || '',
           repository: repo,
+          githubRepoId: repoId,
           author: {
             id: commitData.author?.id || 0,
             username,
@@ -802,6 +895,8 @@ const worker = {
           const repoName = data.repository.name;
           const repoId = data.repository.id.toString();
           
+          console.log('Processing push event for repo:', repoName);
+          
           // Get or create team
           const team = await getOrCreateTeam(supabase, data.repository.owner.id, githubOrgName);
           if (!team) throw new Error('Failed to create/get team');
@@ -810,13 +905,21 @@ const worker = {
           const repo = await getOrCreateRepo(supabase, team.id, repoName, repoId, data.repository.html_url);
           if (!repo) throw new Error('Failed to create/get repo');
 
+          console.log('Found/created repo:', repo);
+
           // Collect all commit details first
           const processedCommits: GitHubCommit[] = [];
           
+          console.log('Processing', data.commits.length, 'commits');
+          
           // Process each commit
           for (const commit of data.commits) {
-            const commitDetails = await fetchCommitDetails(githubOrgName, repoName, commit.id);
-            if (!commitDetails?.author?.id) continue;
+            console.log('Fetching details for commit:', commit.id);
+            const commitDetails = await fetchCommitDetails(githubOrgName, repoName, commit.id, repoId);
+            if (!commitDetails?.author?.id) {
+              console.log('No author details for commit:', commit.id);
+              continue;
+            }
 
             const contributor = await getOrCreateContributor(
               supabase,
@@ -825,16 +928,41 @@ const worker = {
               commitDetails.author.username,
               commitDetails.author.name || commitDetails.author.username || 'Unknown User'
             );
-            if (!contributor) continue;
+            if (!contributor) {
+              console.log('Failed to create/get contributor for commit:', commit.id);
+              continue;
+            }
 
-            await createCommit(supabase, commitDetails, repo.id, contributor.id, githubOrgName);
-            processedCommits.push(commitDetails);
+            console.log('Creating commit record for:', commit.id);
+            const createdCommit = await createCommit(supabase, commitDetails, repo.id, contributor.id, githubOrgName);
+            if (createdCommit) {
+              console.log('Successfully created commit record');
+              processedCommits.push(commitDetails);
+
+              // Create event for the commit
+              await createEvent(
+                supabase,
+                commit.id,
+                'COMMIT_PUSHED',
+                null,
+                {
+                  message: commit.message,
+                  additions: commitDetails.stats?.additions,
+                  deletions: commitDetails.stats?.deletions
+                },
+                commit,
+                null,
+                contributor.id,
+                repo.id
+              );
+            }
           }
 
           // Update monthly stats once with all commits
           if (processedCommits.length > 0) {
+            console.log('Updating monthly stats with', processedCommits.length, 'commits');
             const firstCommitDate = new Date(processedCommits[0].timestamp);
-            await updateMonthStats(supabase, team.id, firstCommitDate, processedCommits);
+            await updateMonthStats(supabase, team.id, firstCommitDate, repo, processedCommits);
           }
           break;
         }
@@ -865,10 +993,33 @@ const worker = {
           );
           if (!contributor) break;
 
-          await createOrUpdatePullRequest(supabase, prDetails, repo.id, contributor.id, githubOrgName);
+          // Create/update PR record
+          const createdPr = await createOrUpdatePullRequest(supabase, prDetails, repo.id, contributor.id, githubOrgName);
+          if (createdPr) {
+            // Create event for the PR
+            await createEvent(
+              supabase,
+              `pr_${prDetails.id}_${data.action}`,
+              data.action === 'closed' && prDetails.merged ? 'PR_MERGED' : 
+                data.action === 'closed' ? 'PR_CLOSED' :
+                data.action === 'reopened' ? 'PR_REOPENED' :
+                data.action === 'opened' ? 'PR_OPENED' : `PR_${data.action.toUpperCase()}`,
+              data.action,
+              {
+                title: prDetails.title,
+                additions: prDetails.additions,
+                deletions: prDetails.deletions,
+                commits: prDetails.commits
+              },
+              data,
+              createdPr.id,
+              contributor.id,
+              repo.id
+            );
+          }
           
-          // Update monthly stats
-          await updateMonthStats(supabase, team.id, new Date(prDetails.created_at), [], prDetails);
+          // Update monthly stats with the repo ID we already have
+          await updateMonthStats(supabase, team.id, new Date(prDetails.created_at), repo, [], prDetails);
           break;
         }
 
