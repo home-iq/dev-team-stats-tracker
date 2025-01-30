@@ -35,6 +35,7 @@ interface Month {
       linesRemoved: number;
       contributionScore: number;
       rank?: number;
+      mergedPrs: number;
     }>;
     object_keys: string[];
   };
@@ -171,26 +172,26 @@ export const ContributorDetail = ({
           <div className="flex items-center gap-2">
             <GitPullRequest className="h-4 w-4 text-muted-foreground" />
             <div className="flex-1 min-w-0">
-              <p className="text-xs md:text-sm text-muted-foreground truncate">Pull Requests</p>
-              <p className="text-lg md:text-2xl font-semibold text-gradient">{contributor.totalPrs}</p>
+              <p className="text-xs md:text-sm text-muted-foreground truncate">Merged PRs</p>
+              <p className="text-lg md:text-2xl font-semibold text-gradient">{contributor.mergedPrs}</p>
             </div>
           </div>
         </Card>
         <Card className="p-2 md:p-4 glass-morphism">
           <div className="flex items-center gap-2">
-            <Star className="h-4 w-4 text-muted-foreground" />
+            <Code2 className="h-4 w-4 text-emerald-400" />
             <div className="flex-1 min-w-0">
-              <p className="text-xs md:text-sm text-muted-foreground truncate">Repositories</p>
-              <p className="text-lg md:text-2xl font-semibold text-gradient">{contributor.activeRepositories.length}</p>
+              <p className="text-xs md:text-sm text-muted-foreground truncate">Lines Added</p>
+              <p className="text-lg md:text-2xl font-semibold text-emerald-400">+{contributor.linesAdded.toLocaleString()}</p>
             </div>
           </div>
         </Card>
         <Card className="p-2 md:p-4 glass-morphism">
           <div className="flex items-center gap-2">
-            <Code2 className="h-4 w-4 text-muted-foreground" />
+            <Code2 className="h-4 w-4 text-red-400" />
             <div className="flex-1 min-w-0">
-              <p className="text-xs md:text-sm text-muted-foreground truncate">Lines of Code</p>
-              <p className="text-lg md:text-2xl font-semibold text-gradient">{linesOfCode.toLocaleString()}</p>
+              <p className="text-xs md:text-sm text-muted-foreground truncate">Lines Removed</p>
+              <p className="text-lg md:text-2xl font-semibold text-red-400">-{contributor.linesRemoved.toLocaleString()}</p>
             </div>
           </div>
         </Card>
