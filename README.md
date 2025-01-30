@@ -28,7 +28,7 @@ This application syncs GitHub activity data (commits, pull requests, and contrib
    npm run dev
    ```
 
-## Features
+## Features 
 
 - Real-time webhook processing of GitHub events
 - Historical data sync with progress tracking
