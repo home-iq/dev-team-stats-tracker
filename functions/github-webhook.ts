@@ -585,6 +585,7 @@ async function createCommit(
     linesAdded: commit.stats?.additions || 0,
     linesDeleted: commit.stats?.deletions || 0,
     committedAt: new Date(commit.timestamp).toISOString(),
+    authoredAt: new Date(commit.timestamp).toISOString(),
     url: `https://github.com/${githubOrgName}/${commit.repository}/commit/${commit.sha}`,
     repoId: repoId,
     authorId: authorId
@@ -600,6 +601,7 @@ async function createCommit(
         linesAdded: commit.stats?.additions || 0,
         linesDeleted: commit.stats?.deletions || 0,
         committedAt: new Date(commit.timestamp).toISOString(),
+        authoredAt: new Date(commit.timestamp).toISOString(),
         url: `https://github.com/${githubOrgName}/${commit.repository}/commit/${commit.sha}`,
         repoId: repoId,
         authorId: authorId,
@@ -743,6 +745,7 @@ async function createEvent(
     .from('Event')
     .upsert(
       {
+        id: crypto.randomUUID(),
         githubEventId,
         type,
         action,
