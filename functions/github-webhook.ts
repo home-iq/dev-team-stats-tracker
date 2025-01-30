@@ -1037,7 +1037,10 @@ const worker = {
           }
           
           // Update monthly stats with the repo ID we already have
-          await updateMonthStats(supabase, team.id, new Date(prDetails.created_at), repo, [], prDetails);
+          const dateToUse = (data.action === 'closed' && prDetails.merged && prDetails.merged_at) 
+            ? new Date(prDetails.merged_at) 
+            : new Date(prDetails.created_at);
+          await updateMonthStats(supabase, team.id, dateToUse, repo, [], prDetails);
           break;
         }
 
