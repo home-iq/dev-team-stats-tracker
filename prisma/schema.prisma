@@ -18,6 +18,9 @@ model Team {
   contributors  Contributor[]
   months        Month[]
   repos         Repo[]
+
+  @@index([githubOrgId])
+  @@index([githubOrgName])
 }
 
 model Repo {
@@ -32,6 +35,8 @@ model Repo {
   events       Event[]
   pullRequests PullRequest[]
   team         Team          @relation(fields: [teamId], references: [id])
+
+  @@index([githubRepoId])
 }
 
 model Contributor {
@@ -48,6 +53,9 @@ model Contributor {
   team         Team          @relation(fields: [teamId], references: [id])
   events       Event[]
   pullRequests PullRequest[]
+
+  @@index([githubUserId])
+  @@index([githubLogin])
 }
 
 model Commit {
@@ -66,6 +74,7 @@ model Commit {
   author         Contributor @relation(fields: [authorId], references: [id])
   repo           Repo        @relation(fields: [repoId], references: [id])
 
+  @@index([githubCommitId])
   @@index([repoId])
   @@index([authorId])
   @@index([authoredAt])
@@ -99,6 +108,7 @@ model PullRequest {
   author       Contributor @relation(fields: [authorId], references: [id])
   repo         Repo        @relation(fields: [repoId], references: [id])
 
+  @@index([githubPrId])
   @@index([repoId])
   @@index([authorId])
   @@index([createdAt])
