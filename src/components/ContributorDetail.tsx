@@ -10,6 +10,9 @@ import { formatInTimeZone } from 'date-fns-tz';
 import { MonthSelector } from "@/components/dashboard/MonthSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useQuery } from "@tanstack/react-query";
+import { supabase } from "@/lib/supabase";
+import { startOfMonth, endOfMonth } from "date-fns";
+import { cn } from "@/lib/utils";
 
 interface Month {
   id: string;
@@ -41,6 +44,53 @@ interface Month {
   };
 }
 
+interface Activity {
+  id: string;
+  type: 'commit' | 'pull_request';
+  title: string;
+  repo: string;
+  summary: string;
+  date: string;
+  linesAdded: number;
+  linesRemoved: number;
+}
+
+interface CommitResponse {
+  id: string;
+  githubCommitId: string;
+  message: string;
+  linesAdded: number;
+  linesDeleted: number;
+  committedAt: string;
+  url: string | null;
+  repo: { name: string } | null;
+}
+
+interface PullRequestResponse {
+  id: string;
+  title: string;
+  description: string | null;
+  sourceBranch: string;
+  targetBranch: string;
+  mergedAt: string;
+  url: string | null;
+  linesAdded: number;
+  linesDeleted: number;
+  repo: { name: string } | null;
+}
+
+interface ContributorData {
+  id: string;
+  name: string;
+  githubUserId: string;
+  githubLogin: string;
+  avatarUrl?: string;
+  cursorEmail?: string;
+  teamId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 interface ContributorDetailProps {
   login?: string;
   currentMonth: Date;
@@ -50,6 +100,7 @@ interface ContributorDetailProps {
   onBack: () => void;
   availableMonths: Date[];
   lastActive?: string;
+  contributorRecords: Record<string, ContributorData>;
 }
 
 export const ContributorDetail = ({ 
@@ -60,32 +111,140 @@ export const ContributorDetail = ({
   onPreviousMonth,
   onNextMonth,
   availableMonths,
-  lastActive
+  lastActive,
+  contributorRecords
 }: ContributorDetailProps) => {
   const isMobile = useIsMobile();
 
   // Get activity data
-  const { data: activities } = useQuery({
+  const { data: activities, isLoading } = useQuery({
     queryKey: ["contributor-activity", login, format(currentMonth, "yyyy-MM")],
     queryFn: async () => {
-      return Array.from({ length: 10 }, (_, i) => {
-        const type = i % 2 === 0 ? "commit" : "pull_request";
-        const repo = `repo-${i}`;
-        return {
-          id: i,
-          type,
-          repo,
-          title: type === "commit" ? "Commit" : "Pull Request",
-          summary: type === "commit" 
-            ? "Updated user authentication and fixed responsive layout issues"
-            : "feature/user-auth → main",
-          date: new Date(currentMonth.getTime() - i * 24 * 60 * 60 * 1000).toISOString(),
-          linesAdded: Math.floor(Math.random() * 10000),
-          linesRemoved: Math.floor(Math.random() * 5000),
-        };
+      if (!login) return [];
+      
+      // Find the contributor record by login
+      const contributor = Object.values(contributorRecords).find(
+        record => record.githubLogin === login
+      );
+
+      if (!contributor) {
+        console.log('No contributor found for login:', login);
+        return [];
+      }
+
+      const monthStart = startOfMonth(currentMonth);
+      const monthEnd = endOfMonth(currentMonth);
+
+      console.log('Fetching activities for:', {
+        login,
+        contributorId: contributor.id,
+        monthStart: monthStart.toISOString(),
+        monthEnd: monthEnd.toISOString()
       });
-    },
+
+      // Fetch commits and PRs in parallel
+      const [{ data: commits, error: commitError }, { data: prs, error: prError }] = await Promise.all([
+        supabase
+          .from('Commit')
+          .select(`
+            id,
+            githubCommitId,
+            message,
+            linesAdded,
+            linesDeleted,
+            committedAt,
+            url,
+            repo:Repo(name)
+          `)
+          .eq('authorId', contributor.id)
+          .gte('committedAt', monthStart.toISOString())
+          .lt('committedAt', monthEnd.toISOString())
+          .order('committedAt', { ascending: false })
+          .returns<CommitResponse[]>(),
+        
+        supabase
+          .from('PullRequest')
+          .select(`
+            id,
+            title,
+            description,
+            sourceBranch,
+            targetBranch,
+            mergedAt,
+            url,
+            linesAdded,
+            linesDeleted,
+            repo:Repo(name)
+          `)
+          .eq('authorId', contributor.id)
+          .gte('mergedAt', monthStart.toISOString())
+          .lt('mergedAt', monthEnd.toISOString())
+          .order('mergedAt', { ascending: false })
+          .returns<PullRequestResponse[]>()
+      ]);
+
+      console.log('Query results:', {
+        commits,
+        commitError,
+        prs,
+        prError
+      });
+
+      // Transform and combine the data
+      const activities: Activity[] = [
+        ...(commits || []).map(commit => ({
+          id: commit.id,
+          type: 'commit' as const,
+          title: 'Commit',
+          repo: commit.repo?.name || 'Unknown',
+          summary: commit.message,
+          date: commit.committedAt,
+          linesAdded: commit.linesAdded,
+          linesRemoved: commit.linesDeleted,
+          url: commit.url
+        })),
+        ...(prs || []).map(pr => ({
+          id: pr.id,
+          type: 'pull_request' as const,
+          title: pr.title,
+          repo: pr.repo?.name || 'Unknown',
+          summary: `${pr.sourceBranch} → ${pr.targetBranch}`,
+          date: pr.mergedAt,
+          linesAdded: pr.linesAdded,
+          linesRemoved: pr.linesDeleted,
+          url: pr.url
+        }))
+      ];
+
+      // Sort by date, most recent first
+      return activities.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    }
   });
+
+  // Loading shimmer effect
+  const Shimmer = () => (
+    <div className="animate-pulse">
+      <Card className="p-5 neo-blur">
+        <div className="flex items-center gap-3">
+          <div className="w-4 h-4 bg-muted-foreground/20 rounded-full shrink-0" />
+          <div className="flex items-center gap-6 flex-1">
+            <div className="w-[120px] shrink-0">
+              <div className="h-5 bg-muted-foreground/20 rounded mb-2" />
+              <div className="h-4 bg-muted-foreground/20 rounded w-3/4" />
+            </div>
+            <div className="flex-1 h-4 bg-muted-foreground/20 rounded" />
+            <div className="flex items-center gap-3 shrink-0">
+              <div className="w-24 h-6 bg-muted-foreground/20 rounded" />
+            </div>
+          </div>
+          <div className="flex flex-col items-end shrink-0 ml-8">
+            <div className="w-20 h-6 bg-muted-foreground/20 rounded mb-1" />
+            <div className="w-16 h-4 bg-muted-foreground/20 rounded" />
+          </div>
+        </div>
+      </Card>
+    </div>
+  );
 
   if (!login || !monthData) {
     return (
@@ -223,65 +382,69 @@ export const ContributorDetail = ({
         </Card>
       </div>
 
-      <Card className="glass-morphism">
+      <Card className="glass-morphism overflow-hidden">
         <ScrollArea className="h-[calc(100vh-400px)]">
-          <div className="p-4 space-y-2">
-            {activities?.map((activity) => (
-              <Card key={activity.id} className="p-5 neo-blur">
-                <div className="md:hidden flex flex-col gap-3">
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="flex items-center gap-3">
+          <div className="px-6 py-4 space-y-2">
+            {isLoading ? (
+              <>
+                <Shimmer />
+                <Shimmer />
+                <Shimmer />
+                <Shimmer />
+                <Shimmer />
+              </>
+            ) : activities?.map((activity) => (
+              <Card key={activity.id} className="p-4 neo-blur overflow-hidden w-full">
+                <div className="md:hidden flex flex-col gap-2 w-full">
+                  <div className="flex items-center justify-between gap-2 w-full">
+                    <div className="flex items-center gap-2 min-w-0 flex-1">
                       {activity.type === "commit" ? (
                         <GitCommit className="h-4 w-4 text-muted-foreground shrink-0" />
                       ) : (
                         <GitPullRequest className="h-4 w-4 text-muted-foreground shrink-0" />
                       )}
-                      <div className="min-w-0">
+                      <div className="min-w-0 flex-1">
                         <h4 className="font-medium truncate">{activity.title}</h4>
                         <p className="text-sm text-muted-foreground truncate">{activity.repo}</p>
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-4">
-                      <div className="flex flex-col items-end shrink-0">
-                        <span className="text-sm font-bold text-emerald-400">+{activity.linesAdded.toLocaleString()}</span>
-                        <span className="text-sm font-bold text-red-400">-{activity.linesRemoved.toLocaleString()}</span>
-                      </div>
-
-                      <div className="flex flex-col items-end shrink-0">
-                        <Badge variant="secondary" className="neo-blur text-xs">
-                          {format(parseISO(activity.date), 'MMM d')}
-                        </Badge>
-                        <span className="text-xs text-muted-foreground mt-1">
-                          {formatInTimeZone(parseISO(activity.date), 'America/New_York', 'h:mm a')} EST
-                        </span>
-                      </div>
+                    <div className="flex flex-col items-end gap-1 shrink-0 ml-2">
+                      <Badge variant="secondary" className="neo-blur text-xs whitespace-nowrap">
+                        {format(parseISO(activity.date), 'MMM d')}
+                      </Badge>
+                      <span className="text-xs text-muted-foreground whitespace-nowrap">
+                        {formatInTimeZone(parseISO(activity.date), 'America/New_York', 'h:mm a')} EST
+                      </span>
                     </div>
                   </div>
-                  <p className="text-sm text-muted-foreground">{activity.summary}</p>
+
+                  <div className="flex items-center justify-between gap-2 w-full">
+                    <p className="text-sm text-muted-foreground truncate flex-1">{activity.summary}</p>
+                    <div className="flex flex-col items-end shrink-0 ml-2">
+                      <span className="text-sm font-bold text-emerald-400 whitespace-nowrap">+{activity.linesAdded.toLocaleString()}</span>
+                      <span className="text-sm font-bold text-red-400 whitespace-nowrap">-{activity.linesRemoved.toLocaleString()}</span>
+                    </div>
+                  </div>
                 </div>
 
-                <div className="hidden md:flex items-center gap-3">
+                <div className="hidden md:grid md:grid-cols-[auto_120px_1fr_auto_auto] md:gap-4 md:items-center">
                   {activity.type === "commit" ? (
                     <GitCommit className="h-4 w-4 text-muted-foreground shrink-0" />
                   ) : (
                     <GitPullRequest className="h-4 w-4 text-muted-foreground shrink-0" />
                   )}
-                  <div className="flex items-center gap-6 flex-1">
-                    <div className="w-[120px] shrink-0">
-                      <h4 className="font-medium truncate">{activity.title}</h4>
-                      <p className="text-sm text-muted-foreground truncate">{activity.repo}</p>
-                    </div>
-                    <p className="text-sm text-muted-foreground truncate flex-1">{activity.summary}</p>
-                    <div className="flex items-center gap-3 shrink-0">
-                      <div className="flex items-center shrink-0">
-                        <span className="text-lg font-bold text-emerald-400 w-[5rem] text-right">+{activity.linesAdded.toLocaleString()}</span>
-                        <span className="text-lg font-bold text-red-400 w-[5rem] text-right -ml-1">-{activity.linesRemoved.toLocaleString()}</span>
-                      </div>
-                    </div>
+                  <div className="min-w-0">
+                    <h4 className="font-medium truncate">{activity.title}</h4>
+                    <p className="text-sm text-muted-foreground truncate">{activity.repo}</p>
                   </div>
-                  <div className="flex flex-col items-end shrink-0 ml-8">
-                    <Badge variant="secondary" className="neo-blur text-sm">
+                  <p className="text-sm text-muted-foreground truncate">{activity.summary}</p>
+                  <div className="flex items-center shrink-0">
+                    <span className="text-sm font-bold text-emerald-400 w-16 text-right">+{activity.linesAdded.toLocaleString()}</span>
+                    <span className="text-sm font-bold text-red-400 w-16 text-right">-{activity.linesRemoved.toLocaleString()}</span>
+                  </div>
+                  <div className="flex flex-col items-end shrink-0">
+                    <Badge variant="secondary" className="neo-blur text-xs">
                       {format(parseISO(activity.date), 'MMM d')}
                     </Badge>
                     <span className="text-xs text-muted-foreground mt-1">

@@ -394,13 +394,9 @@ const Index = () => {
                 const contributor = Object.values(contributorRecords).find(
                   record => record.githubLogin === contributorId
                 );
-                console.log('ContributorDetail Debug:', {
-                  contributorId,
-                  foundContributor: contributor,
-                  lastActive: contributor?.updatedAt
-                });
                 return contributor?.updatedAt;
               })()}
+              contributorRecords={contributorRecords}
               onBack={() => {
                 const dashboardMonthStr = format(dashboardMonth, "MMMM-yyyy").toLowerCase();
                 if (format(dashboardMonth, "yyyy-MM") !== format(new Date(), "yyyy-MM")) {
