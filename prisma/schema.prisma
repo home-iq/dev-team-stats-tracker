@@ -26,7 +26,7 @@ model Team {
 model Repo {
   id           String        @id @default(uuid())
   name         String
-  githubRepoId BigInt       @unique
+  githubRepoId String       @unique
   url          String?
   teamId       String
   createdAt    DateTime      @default(now())
@@ -42,7 +42,7 @@ model Repo {
 model Contributor {
   id           String        @id @default(uuid())
   name         String
-  githubUserId BigInt       @unique
+  githubUserId String       @unique
   githubLogin  String       @unique
   avatarUrl    String?
   cursorEmail  String?      // Optional email for linking to Cursor data
