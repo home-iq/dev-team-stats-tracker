@@ -274,9 +274,6 @@ export const ContributorDetail = ({
                     </div>
                     <p className="text-sm text-muted-foreground truncate flex-1">{activity.summary}</p>
                     <div className="flex items-center gap-3 shrink-0">
-                      <Badge variant="secondary" className="neo-blur text-xs">
-                        Score: {Math.floor(Math.random() * 100)}
-                      </Badge>
                       <div className="flex items-center shrink-0">
                         <span className="text-lg font-bold text-emerald-400 w-[5rem] text-right">+{activity.linesAdded.toLocaleString()}</span>
                         <span className="text-lg font-bold text-red-400 w-[5rem] text-right -ml-1">-{activity.linesRemoved.toLocaleString()}</span>
