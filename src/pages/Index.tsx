@@ -82,6 +82,12 @@ const Index = () => {
   // Fetch all months data at once
   useEffect(() => {
     const fetchAllMonthsData = async () => {
+      // Only show loading states if we don't have any data yet
+      if (monthsData.length === 0) {
+        setIsLoading(true);
+        setShowContent(false);
+      }
+
       try {
         const { data, error } = await supabase
           .from('Month')
@@ -108,14 +114,16 @@ const Index = () => {
             setCurrentMonthData(null);
           }
 
-          // Add delay for smooth loading animation
-          const loadingEndTime = Math.max(1200 - (Date.now() - startTime), 0);
-          setTimeout(() => {
-            setIsLoading(false);
+          // Only show loading animation on initial load
+          if (monthsData.length === 0) {
+            const loadingEndTime = Math.max(1200 - (Date.now() - startTime), 0);
             setTimeout(() => {
-              setShowContent(true);
-            }, 300);
-          }, loadingEndTime);
+              setIsLoading(false);
+              setTimeout(() => {
+                setShowContent(true);
+              }, 300);
+            }, loadingEndTime);
+          }
         }
       } catch (error) {
         console.error('Error fetching months data:', error);
@@ -125,8 +133,6 @@ const Index = () => {
     };
 
     const startTime = Date.now();
-    setIsLoading(true);
-    setShowContent(false);
     fetchAllMonthsData();
   }, []);
 
