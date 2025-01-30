@@ -8,11 +8,35 @@ import { Header } from "@/components/dashboard/Header";
 import { MonthSelector } from "@/components/dashboard/MonthSelector";
 import { useNavigate, useParams } from "react-router-dom";
 import { getSortedContributors } from "@/data/contributors";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
 
 const Index = () => {
   const navigate = useNavigate();
   const { contributorId, month } = useParams();
   const isMobile = useIsMobile();
+  const [isLoading, setIsLoading] = useState(true);
+  const [showContent, setShowContent] = useState(false);
+  const [contributors, setContributors] = useState<ReturnType<typeof getSortedContributors>>([]);
+
+  useEffect(() => {
+    // Start loading sequence
+    setContributors(getSortedContributors());
+    
+    // After progress bar completes, start fade out
+    const loadingTimer = setTimeout(() => {
+      setIsLoading(false);
+    }, 1200);
+
+    // After loading fades out, show content
+    const contentTimer = setTimeout(() => {
+      setShowContent(true);
+    }, 1500);
+
+    return () => {
+      clearTimeout(loadingTimer);
+      clearTimeout(contentTimer);
+    };
+  }, []);
 
   // Separate month states for dashboard and contributor detail
   const [dashboardMonth, setDashboardMonth] = useState(() => {
@@ -107,8 +131,15 @@ const Index = () => {
     }
   };
 
-  // Get sorted contributors data
-  const contributors = getSortedContributors();
+  const container = {
+    hidden: { opacity: 0 },
+    show: {
+      opacity: 1,
+      transition: {
+        staggerChildren: 0.1
+      }
+    }
+  };
 
   return (
     <div className="min-h-screen p-6 md:p-8">
@@ -139,18 +170,36 @@ const Index = () => {
                 </div>
               )}
 
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-                {contributors.map((contributor) => (
-                  <ContributorCard
-                    key={contributor.login}
-                    contributor={contributor}
-                    onClick={() => {
-                      setContributorMonth(dashboardMonth);
-                      navigate(`/contributor/${contributor.login}/${urlFormattedMonth}`);
-                    }}
-                  />
-                ))}
-              </div>
+              <AnimatePresence mode="wait">
+                {isLoading ? (
+                  <motion.div
+                    key="loading"
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.2 }}
+                  >
+                    <LoadingSpinner />
+                  </motion.div>
+                ) : showContent && (
+                  <motion.div 
+                    key="content"
+                    className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4"
+                    variants={container}
+                    initial="hidden"
+                    animate="show"
+                  >
+                    {contributors.map((contributor) => (
+                      <ContributorCard
+                        key={contributor.login}
+                        contributor={contributor}
+                        onClick={() => {
+                          setContributorMonth(dashboardMonth);
+                          navigate(`/contributor/${contributor.login}/${urlFormattedMonth}`);
+                        }}
+                      />
+                    ))}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
           </motion.div>
         ) : (
