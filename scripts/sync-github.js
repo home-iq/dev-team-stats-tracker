@@ -475,14 +475,20 @@ async function processMonth(date, progressState, teamId) {
 
       // Fetch monthly data
       spinner.text = chalk.blue(`Fetching commits for ${repo.name}...`);
-      const commits = await fetchMonthlyCommits(repo, startDate, endDate);
+      let commits = await fetchMonthlyCommits(repo, startDate, endDate);
+      let pullRequests = await fetchMonthlyPullRequests(repo, startDate, endDate);
+
+      // Special case for dev.diy: filter to only jonthewayne's contributions
+      if (repo.name === 'dev.diy') {
+        commits = commits.filter(commit => commit.author?.id?.toString() === '4027');
+        pullRequests = pullRequests.filter(pr => pr.user?.id?.toString() === '4027');
+        spinner.text = chalk.blue(`Processing ${commits.length} commits and ${pullRequests.length} PRs from jonthewayne for ${repo.name}...`);
+      } else {
+        spinner.text = chalk.blue(`Processing ${commits.length} commits and ${pullRequests.length} PRs for ${repo.name}...`);
+      }
+      
       allCommits.push(...commits.map(c => ({ ...c, repository: repo.id })));
-      
-      spinner.text = chalk.blue(`Fetching PRs for ${repo.name}...`);
-      const pullRequests = await fetchMonthlyPullRequests(repo, startDate, endDate);
       allPullRequests.push(...pullRequests.map(pr => ({ ...pr, repository: repo.id })));
-      
-      spinner.text = chalk.blue(`Processing ${commits.length} commits and ${pullRequests.length} PRs for ${repo.name}...`);
 
       // Process commits
       for (const commit of commits) {
