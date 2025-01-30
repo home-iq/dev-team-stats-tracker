@@ -1,4 +1,3 @@
-import { useQuery } from "@tanstack/react-query";
 import { Card } from "@/components/ui/card";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Button } from "@/components/ui/button";
@@ -6,10 +5,12 @@ import { ChevronLeft, GitCommit, GitPullRequest, Code2, Star } from "lucide-reac
 import { motion } from "framer-motion";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { format, parseISO, formatISO } from "date-fns";
+import { format, parseISO } from "date-fns";
 import { formatInTimeZone } from 'date-fns-tz';
 import { MonthSelector } from "@/components/dashboard/MonthSelector";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useQuery } from "@tanstack/react-query";
+import { contributorsData } from "@/data/contributors";
 
 interface ContributorDetailProps {
   login: string;
@@ -28,25 +29,13 @@ export const ContributorDetail = ({
 }: ContributorDetailProps) => {
   const isMobile = useIsMobile();
 
-  const { data: contributor, isLoading: isLoadingContributor } = useQuery({
-    queryKey: ["contributor", login],
-    queryFn: async () => {
-      return {
-        login,
-        name: `${login}'s Full Name`,
-        avatar_url: `https://avatars.githubusercontent.com/u/${Math.floor(Math.random() * 1000)}`,
-        bio: "Software Engineer passionate about building great products",
-        location: "San Francisco, CA",
-        contributions: Math.floor(Math.random() * 1000),
-        pullRequests: Math.floor(Math.random() * 100),
-        commits: Math.floor(Math.random() * 500),
-        repositories: Math.floor(Math.random() * 20),
-        linesOfCode: Math.floor(Math.random() * 50000),
-      };
-    },
-  });
+  // Find contributor data
+  const contributor = Object.values(contributorsData.contributors).find(c => c.login === login);
+  const avatar_url = contributor ? `https://avatars.githubusercontent.com/u/${contributor.githubUserId || login}` : '';
+  const linesOfCode = contributor ? contributor.linesAdded + contributor.linesRemoved : 0;
 
-  const { data: activities, isLoading: isLoadingActivities } = useQuery({
+  // Get activity data
+  const { data: activities } = useQuery({
     queryKey: ["contributor-activity", login, format(currentMonth, "yyyy-MM")],
     queryFn: async () => {
       return Array.from({ length: 10 }, (_, i) => {
@@ -67,6 +56,14 @@ export const ContributorDetail = ({
       });
     },
   });
+
+  if (!contributor) {
+    return (
+      <div className="text-center p-8">
+        <h2 className="text-2xl font-bold">Contributor not found</h2>
+      </div>
+    );
+  }
 
   return (
     <motion.div
@@ -89,11 +86,13 @@ export const ContributorDetail = ({
                 <ChevronLeft className="h-4 w-4" />
               </Button>
               <Avatar className="w-16 h-16 border-2 border-primary/20">
-                <img src={contributor?.avatar_url} alt={contributor?.login} className="object-cover" />
+                <img src={avatar_url} alt={contributor.login} className="object-cover" />
               </Avatar>
               <div>
-                <h2 className="text-3xl font-bold mb-0.5 text-gradient">{contributor?.name}</h2>
-                <p className="text-sm text-muted-foreground">Last Activity: {formatInTimeZone(parseISO(activities?.[0]?.date || new Date().toISOString()), 'America/New_York', 'MMM d @ h:mm a')} EST</p>
+                <h2 className="text-3xl font-bold mb-0.5 text-gradient">{contributor.login}</h2>
+                <p className="text-sm text-muted-foreground">
+                  Contribution Score: <span className="font-semibold">{contributor.contributionScore}</span>
+                </p>
               </div>
             </div>
           </div>
@@ -122,7 +121,7 @@ export const ContributorDetail = ({
             <GitCommit className="h-4 w-4 text-muted-foreground" />
             <div className="flex-1 min-w-0">
               <p className="text-xs md:text-sm text-muted-foreground truncate">Commits</p>
-              <p className="text-lg md:text-2xl font-semibold text-gradient">{contributor?.commits}</p>
+              <p className="text-lg md:text-2xl font-semibold text-gradient">{contributor.totalCommits}</p>
             </div>
           </div>
         </Card>
@@ -131,7 +130,7 @@ export const ContributorDetail = ({
             <GitPullRequest className="h-4 w-4 text-muted-foreground" />
             <div className="flex-1 min-w-0">
               <p className="text-xs md:text-sm text-muted-foreground truncate">Pull Requests</p>
-              <p className="text-lg md:text-2xl font-semibold text-gradient">{contributor?.pullRequests}</p>
+              <p className="text-lg md:text-2xl font-semibold text-gradient">{contributor.totalPrs}</p>
             </div>
           </div>
         </Card>
@@ -140,7 +139,7 @@ export const ContributorDetail = ({
             <Star className="h-4 w-4 text-muted-foreground" />
             <div className="flex-1 min-w-0">
               <p className="text-xs md:text-sm text-muted-foreground truncate">Repositories</p>
-              <p className="text-lg md:text-2xl font-semibold text-gradient">{contributor?.repositories}</p>
+              <p className="text-lg md:text-2xl font-semibold text-gradient">{contributor.activeRepositories.length}</p>
             </div>
           </div>
         </Card>
@@ -149,7 +148,7 @@ export const ContributorDetail = ({
             <Code2 className="h-4 w-4 text-muted-foreground" />
             <div className="flex-1 min-w-0">
               <p className="text-xs md:text-sm text-muted-foreground truncate">Lines of Code</p>
-              <p className="text-lg md:text-2xl font-semibold text-gradient">{contributor?.linesOfCode}</p>
+              <p className="text-lg md:text-2xl font-semibold text-gradient">{linesOfCode.toLocaleString()}</p>
             </div>
           </div>
         </Card>
