@@ -15,7 +15,7 @@ This application syncs GitHub activity data (commits, pull requests, and contrib
   DIRECT_URL=your_direct_database_url
   ```
 
-## Getting Started
+## Getting Started 
 
 1. Clone the repository
 2. Install dependencies:
