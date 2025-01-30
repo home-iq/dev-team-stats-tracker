@@ -112,10 +112,29 @@ To develop and test the webhook functionality locally, we use Wrangler (Cloudfla
 ### Development Notes
 
 - The webhook endpoint will be available at `http://localhost:8788/github-webhook` locally
-- ngrok provides a web interface at `http://localhost:4040` to inspect webhook requests
+- ngrok provides a web interface at `http://localhost:4040` to inspect webhook requests:
+  - View real-time webhook payloads and responses
+  - Inspect headers, query parameters, and request bodies
+  - Replay requests for testing and debugging
+  - View detailed timing information
+  - Debug webhook delivery issues
 - The ngrok URL changes each time you restart ngrok (unless you have a paid account)
 - Remember to update the GitHub webhook URL when the ngrok URL changes
 - Keep both the Wrangler server and ngrok running while testing webhooks
+
+### Testing Webhooks
+
+When developing webhook functionality:
+1. Start your local development server (`npm run dev:wrangler`)
+2. Start ngrok (`ngrok http 8788`)
+3. Open the ngrok inspector at `http://localhost:4040`
+4. Configure your GitHub webhook with the ngrok URL
+5. Make some test commits or PRs
+6. Use the inspector to verify:
+   - Webhook payloads are correctly formatted
+   - Your application is responding properly
+   - Any errors or issues in the response
+   - Request/response timing and performance
 
 ## Manual Sync Script Usage
 
