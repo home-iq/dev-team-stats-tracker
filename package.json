@@ -13,7 +13,7 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "sync": "node scripts/sync-github.js",
-    "dev:wrangler": "wrangler pages dev --compatibility-date=2024-01-29 -- npm run dev"
+    "dev:wrangler": "wrangler pages dev --compatibility-date=2024-01-29 --live-reload -- npm run dev"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.9.0",

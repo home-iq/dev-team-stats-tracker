@@ -539,6 +539,16 @@ const worker = {
 
       const event = request.headers.get('x-github-event');
       const data = JSON.parse(payload);
+
+      // Log incoming webhook data for debugging
+      console.log('Received webhook event:', event);
+      console.log('Webhook payload:', JSON.stringify(data, null, 2));
+
+      // For non-push/pull_request events, just acknowledge receipt
+      if (!['push', 'pull_request'].includes(event || '') || !data.repository?.owner?.login) {
+        return new Response('Webhook received', { status: 200 });
+      }
+
       const orgName = data.repository.owner.login;
 
       // Process the webhook event
@@ -618,7 +628,6 @@ const worker = {
       }
 
       return new Response('OK');
-
     } catch (err) {
       console.error('Error processing webhook:', err);
       

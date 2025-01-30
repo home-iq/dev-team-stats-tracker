@@ -40,6 +40,7 @@ model Contributor {
   githubUserId String        @unique
   githubLogin  String        @unique
   avatarUrl    String?
+  cursorEmail  String?       // Optional email for linking to Cursor data
   teamId       String
   createdAt    DateTime      @default(now())
   updatedAt    DateTime      @updatedAt
