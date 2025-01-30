@@ -28,21 +28,22 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.3 }}
+      className="h-full"
     >
       <Card
-        className="p-6 cursor-pointer transition-all duration-100 ease-out relative overflow-hidden group glass-morphism hover:brightness-90 hover:translate-y-[2px]"
+        className="p-6 cursor-pointer transition-all duration-100 ease-out relative overflow-hidden group glass-morphism hover:brightness-90 hover:translate-y-[2px] h-full flex flex-col"
         onClick={onClick}
       >
         <div className="absolute top-4 right-4 z-10 bg-primary/10 text-primary w-8 h-8 rounded-full flex items-center justify-center font-bold text-sm border border-primary/20">
           #{contributor.rank}
         </div>
         
-        <div className="flex items-start space-x-4">
-          <Avatar className="w-16 h-16 border-2 border-primary/20">
+        <div className="flex items-start space-x-4 flex-1">
+          <Avatar className="w-16 h-16 border-2 border-primary/20 shrink-0">
             <img src={contributor.avatar_url} alt={contributor.login} className="object-cover" />
           </Avatar>
           
-          <div className="flex-1">
+          <div className="flex-1 min-w-0">
             <h3 className="font-semibold text-lg mb-2 text-gradient" title={contributor.login}>{truncatedLogin}</h3>
             <div className="flex flex-wrap gap-2 mb-4">
               <Badge variant="secondary" className="flex items-center gap-1 neo-blur">
@@ -65,7 +66,7 @@ export const ContributorCard = ({ contributor, onClick }: ContributorCardProps) 
           </div>
         </div>
 
-        <div className="mt-4 pt-4 border-t border-white/10">
+        <div className="mt-auto pt-4 border-t border-white/10">
           <div className="text-sm text-muted-foreground">
             Contribution Score
             <span className="float-right font-semibold text-foreground">
