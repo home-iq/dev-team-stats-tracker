@@ -27,10 +27,10 @@ export const Header = ({
   return (
     <div className={`flex ${isMobile ? 'flex-col' : 'flex-row justify-between items-center'} mb-8`}>
       <div 
-        className="flex items-center gap-6 cursor-pointer hover:opacity-80 transition-opacity"
+        className={`flex ${isMobile ? 'flex-col items-center text-center gap-2' : 'items-center gap-6'} cursor-pointer hover:opacity-80 transition-opacity`}
         onClick={handleHomeClick}
       >
-        <img src="/lovable-uploads/716e0ab0-b4ee-4fb2-966d-2597a98a27ec.png" alt="IQ Logo" className="h-12 w-auto" />
+        <img src="/lovable-uploads/716e0ab0-b4ee-4fb2-966d-2597a98a27ec.png" alt="IQ Logo" className={`h-12 w-auto ${isMobile ? 'mb-2' : ''}`} />
         <div>
           <h1 className="text-3xl font-bold mb-0.4 text-gradient">Dev Team Dashboard</h1>
           <p className="text-muted-foreground text-sm">
