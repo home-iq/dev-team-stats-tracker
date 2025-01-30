@@ -24,64 +24,80 @@ export interface Env {
 interface Database {
   public: {
     Tables: {
-      team: {
+      Team: {
         Row: {
           id: string
           name: string
-          github_org_id: bigint
-          github_org_name: string | null
-          created_at: string
-          updated_at: string
+          githubOrgId: number
+          githubOrgName: string | null
+          createdAt: string
+          updatedAt: string
+        }
+        Insert: {
+          id?: string
+          name: string
+          githubOrgId: number
+          githubOrgName?: string | null
+          createdAt?: string
+          updatedAt?: string
+        }
+        Update: {
+          id?: string
+          name?: string
+          githubOrgId?: number
+          githubOrgName?: string | null
+          createdAt?: string
+          updatedAt?: string
         }
       }
-      repo: {
+      Repo: {
         Row: {
           id: string
           name: string
-          github_repo_id: string
+          githubRepoId: string
           url: string | null
-          team_id: string
-          created_at: string
-          updated_at: string
+          teamId: string
+          createdAt: string
+          updatedAt: string
         }
       }
-      contributor: {
+      Contributor: {
         Row: {
           id: string
           name: string
-          github_user_id: string
-          github_login: string
-          avatar_url: string | null
-          cursor_email: string | null
-          team_id: string
-          created_at: string
-          updated_at: string
+          githubUserId: string
+          githubLogin: string
+          avatarUrl: string | null
+          cursorEmail: string | null
+          teamId: string
+          createdAt: string
+          updatedAt: string
         }
       }
-      commit: {
+      Commit: {
         Row: {
           id: string
-          github_commit_id: string
+          githubCommitId: string
           message: string
-          lines_added: number
-          lines_deleted: number
-          authored_at: string | null
-          committed_at: string
+          linesAdded: number
+          linesDeleted: number
+          authoredAt: string | null
+          committedAt: string
           url: string | null
-          repo_id: string
-          author_id: string
-          created_at: string
-          updated_at: string
+          repoId: string
+          authorId: string
+          createdAt: string
+          updatedAt: string
         }
       }
-      month: {
+      Month: {
         Row: {
           id: string
           date: string
-          team_id: string
+          teamId: string
           stats: Json
-          created_at: string
-          updated_at: string
+          createdAt: string
+          updatedAt: string
         }
       }
     }
@@ -179,33 +195,33 @@ async function getOrCreateContributor(
   avatarUrl?: string
 ) {
   const { data: existing } = await supabase
-    .from('contributor')
+    .from('Contributor')
     .select()
-    .eq('github_user_id', githubUserId)
+    .eq('githubUserId', githubUserId)
     .single()
 
   if (existing) {
     const { data } = await supabase
-      .from('contributor')
+      .from('Contributor')
       .update({ 
-        github_login: login, 
+        githubLogin: login, 
         name, 
-        avatar_url: avatarUrl 
+        avatarUrl: avatarUrl 
       })
-      .eq('github_user_id', githubUserId)
+      .eq('githubUserId', githubUserId)
       .select()
       .single()
     return data
   }
 
   const { data } = await supabase
-    .from('contributor')
+    .from('Contributor')
     .insert({
-      team_id: teamId,
-      github_user_id: githubUserId,
-      github_login: login,
+      teamId: teamId,
+      githubUserId: githubUserId,
+      githubLogin: login,
       name,
-      avatar_url: avatarUrl
+      avatarUrl: avatarUrl
     })
     .select()
     .single()
@@ -221,30 +237,30 @@ async function getOrCreateRepo(
   url?: string
 ) {
   const { data: existing } = await supabase
-    .from('repo')
+    .from('Repo')
     .select()
-    .eq('github_repo_id', githubRepoId)
+    .eq('githubRepoId', githubRepoId)
     .single()
 
   if (existing) {
     const { data } = await supabase
-      .from('repo')
+      .from('Repo')
       .update({ 
         name: repoName, 
         url 
       })
-      .eq('github_repo_id', githubRepoId)
+      .eq('githubRepoId', githubRepoId)
       .select()
       .single()
     return data
   }
 
   const { data } = await supabase
-    .from('repo')
+    .from('Repo')
     .insert({
-      team_id: teamId,
+      teamId: teamId,
       name: repoName,
-      github_repo_id: githubRepoId,
+      githubRepoId: githubRepoId,
       url
     })
     .select()
@@ -256,37 +272,58 @@ async function getOrCreateRepo(
 async function getOrCreateTeam(
   supabase: ReturnType<typeof createClient<Database>>,
   githubOrgId: number, 
-  orgName: string
+  githubOrgName: string
 ) {
-  const { data: existing } = await supabase
-    .from('team')
+  console.log('Creating/getting team:', { githubOrgId, githubOrgName });
+  
+  const { data: existing, error: selectError } = await supabase
+    .from('Team')
     .select()
-    .eq('github_org_id', githubOrgId)
-    .single()
+    .eq('githubOrgId', githubOrgId)
+    .single();
 
-  if (existing) {
-    const { data } = await supabase
-      .from('team')
-      .update({ 
-        github_org_name: orgName,
-        name: orgName 
-      })
-      .eq('github_org_id', githubOrgId)
-      .select()
-      .single()
-    return data
+  if (selectError) {
+    console.error('Error selecting team:', selectError);
+    if (selectError.code === '42P01') {
+      throw new Error('Database table "team" does not exist. Please run migrations first.');
+    }
   }
 
-  const { data } = await supabase
-    .from('team')
+  if (existing) {
+    console.log('Found existing team:', existing);
+    const { data, error: updateError } = await supabase
+      .from('Team')
+      .update({ 
+        githubOrgName: githubOrgName,
+        name: githubOrgName
+      })
+      .eq('githubOrgId', githubOrgId)
+      .select()
+      .single();
+
+    if (updateError) {
+      console.error('Error updating team:', updateError);
+      throw new Error('Failed to update team');
+    }
+    return data;
+  }
+
+  console.log('Creating new team');
+  const { data, error: insertError } = await supabase
+    .from('Team')
     .insert({
-      github_org_id: githubOrgId,
-      github_org_name: orgName,
-      name: orgName
+      githubOrgId: githubOrgId,
+      githubOrgName: githubOrgName,
+      name: githubOrgName
     })
     .select()
-    .single()
-  return data
+    .single();
+
+  if (insertError) {
+    console.error('Error inserting team:', insertError);
+    throw new Error('Failed to create team');
+  }
+  return data;
 }
 
 // Helper to convert GitHub PR state to PrStatus
@@ -345,9 +382,9 @@ async function updateMonthStats(
   
   // Get or create month record with stats
   const { data: monthRecord } = await supabase
-    .from('month')
+    .from('Month')
     .select()
-    .eq('team_id', teamId)
+    .eq('teamId', teamId)
     .eq('date', startOfMonth.toISOString())
     .single();
 
@@ -502,17 +539,17 @@ async function updateMonthStats(
   // Update the month record
   if (monthRecord) {
     await supabase
-      .from('month')
+      .from('Month')
       .update({
         stats: existingStats as Json,
-        updated_at: new Date().toISOString()
+        updatedAt: new Date().toISOString()
       })
       .eq('id', monthRecord.id);
   } else {
     await supabase
-      .from('month')
+      .from('Month')
       .insert({
-        team_id: teamId,
+        teamId: teamId,
         date: startOfMonth.toISOString(),
         stats: existingStats as Json
       });
@@ -525,19 +562,19 @@ async function createCommit(
   commit: GitHubCommit, 
   repoId: string, 
   authorId: string, 
-  orgName: string
+  githubOrgName: string
 ) {
   const { data } = await supabase
-    .from('commit')
+    .from('Commit')
     .insert({
-      github_commit_id: commit.id,
+      githubCommitId: commit.id,
       message: commit.message,
-      lines_added: commit.stats?.additions || 0,
-      lines_deleted: commit.stats?.deletions || 0,
-      committed_at: new Date(commit.timestamp).toISOString(),
-      url: `https://github.com/${orgName}/${commit.repository}/commit/${commit.sha}`,
-      repo_id: repoId,
-      author_id: authorId
+      linesAdded: commit.stats?.additions || 0,
+      linesDeleted: commit.stats?.deletions || 0,
+      committedAt: new Date(commit.timestamp).toISOString(),
+      url: `https://github.com/${githubOrgName}/${commit.repository}/commit/${commit.sha}`,
+      repoId: repoId,
+      authorId: authorId
     })
     .select()
     .single()
@@ -550,50 +587,50 @@ async function createOrUpdatePullRequest(
   pr: GitHubPullRequest, 
   repoId: string, 
   authorId: string, 
-  orgName: string
+  githubOrgName: string
 ) {
   const status = pr.merged ? 'MERGED' : pr.state.toUpperCase() === 'OPEN' ? 'OPEN' : 'CLOSED'
   
   const prData = {
-    github_pr_id: pr.id,
+    githubPrId: pr.id,
     title: pr.title,
     description: pr.body || '',
     status,
-    is_draft: pr.draft,
-    is_merged: pr.merged,
-    source_branch: pr.head.ref,
-    target_branch: pr.base.ref,
-    opened_at: new Date(pr.created_at).toISOString(),
-    merged_at: pr.merged_at ? new Date(pr.merged_at).toISOString() : null,
-    closed_at: pr.closed_at ? new Date(pr.closed_at).toISOString() : null,
-    url: `https://github.com/${orgName}/${pr.repository}/pull/${pr.number}`,
-    lines_added: pr.additions || 0,
-    lines_deleted: pr.deletions || 0,
+    isDraft: pr.draft,
+    isMerged: pr.merged,
+    sourceBranch: pr.head.ref,
+    targetBranch: pr.base.ref,
+    openedAt: new Date(pr.created_at).toISOString(),
+    mergedAt: pr.merged_at ? new Date(pr.merged_at).toISOString() : null,
+    closedAt: pr.closed_at ? new Date(pr.closed_at).toISOString() : null,
+    url: `https://github.com/${githubOrgName}/${pr.repository}/pull/${pr.number}`,
+    linesAdded: pr.additions || 0,
+    linesDeleted: pr.deletions || 0,
     commits: pr.commits || 0,
     comments: (pr.comments || 0) + (pr.review_comments || 0),
     reviews: pr.review_comments || 0,
-    author_id: authorId,
-    repo_id: repoId
+    authorId: authorId,
+    repoId: repoId
   }
 
   const { data: existing } = await supabase
-    .from('pull_request')
+    .from('PullRequest')
     .select()
-    .eq('github_pr_id', pr.id)
+    .eq('githubPrId', pr.id)
     .single()
 
   if (existing) {
     const { data } = await supabase
-      .from('pull_request')
+      .from('PullRequest')
       .update(prData)
-      .eq('github_pr_id', pr.id)
+      .eq('githubPrId', pr.id)
       .select()
       .single()
     return data
   }
 
   const { data } = await supabase
-    .from('pull_request')
+    .from('PullRequest')
     .insert(prData)
     .select()
     .single()
@@ -756,7 +793,7 @@ const worker = {
         return new Response('Webhook received', { status: 200 });
       }
 
-      const orgName = data.repository.owner.login;
+      const githubOrgName = data.repository.owner.login;
 
       // Process the webhook event
       switch (event) {
@@ -766,7 +803,7 @@ const worker = {
           const repoId = data.repository.id.toString();
           
           // Get or create team
-          const team = await getOrCreateTeam(supabase, data.repository.owner.id, orgName);
+          const team = await getOrCreateTeam(supabase, data.repository.owner.id, githubOrgName);
           if (!team) throw new Error('Failed to create/get team');
           
           // Get or create repo
@@ -778,7 +815,7 @@ const worker = {
           
           // Process each commit
           for (const commit of data.commits) {
-            const commitDetails = await fetchCommitDetails(orgName, repoName, commit.id);
+            const commitDetails = await fetchCommitDetails(githubOrgName, repoName, commit.id);
             if (!commitDetails?.author?.id) continue;
 
             const contributor = await getOrCreateContributor(
@@ -790,7 +827,7 @@ const worker = {
             );
             if (!contributor) continue;
 
-            await createCommit(supabase, commitDetails, repo.id, contributor.id, orgName);
+            await createCommit(supabase, commitDetails, repo.id, contributor.id, githubOrgName);
             processedCommits.push(commitDetails);
           }
 
@@ -808,14 +845,14 @@ const worker = {
           const repoId = data.repository.id.toString();
           
           // Get or create team
-          const team = await getOrCreateTeam(supabase, data.repository.owner.id, orgName);
+          const team = await getOrCreateTeam(supabase, data.repository.owner.id, githubOrgName);
           if (!team) throw new Error('Failed to create/get team');
           
           // Get or create repo
           const repo = await getOrCreateRepo(supabase, team.id, repoName, repoId, data.repository.html_url);
           if (!repo) throw new Error('Failed to create/get repo');
 
-          const prDetails = await fetchPullRequestDetails(orgName, repoName, data.pull_request.number);
+          const prDetails = await fetchPullRequestDetails(githubOrgName, repoName, data.pull_request.number);
           if (!prDetails?.user?.id) break;
 
           const contributor = await getOrCreateContributor(
@@ -828,7 +865,7 @@ const worker = {
           );
           if (!contributor) break;
 
-          await createOrUpdatePullRequest(supabase, prDetails, repo.id, contributor.id, orgName);
+          await createOrUpdatePullRequest(supabase, prDetails, repo.id, contributor.id, githubOrgName);
           
           // Update monthly stats
           await updateMonthStats(supabase, team.id, new Date(prDetails.created_at), [], prDetails);

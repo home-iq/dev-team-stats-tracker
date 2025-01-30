@@ -15,12 +15,14 @@ export default defineConfig(({ mode }) => ({
     middleware: [
       {
         name: 'github-webhook',
-        // Handle webhook requests
+        // Handle webhook requests 
         handle: async (req: Connect.IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
           if (req.url === '/github-webhook' && req.method === 'POST') {
             const response = await handleWebhook(req as unknown as Request, {
               GITHUB_WEBHOOK_SECRET: process.env.GITHUB_WEBHOOK_SECRET || '',
-              GITHUB_KEY: process.env.GITHUB_KEY || ''
+              GITHUB_KEY: process.env.GITHUB_KEY || '',
+              PUBLIC_SUPABASE_URL: process.env.PUBLIC_SUPABASE_URL || '',
+              SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || ''
             });
             res.statusCode = response.status;
             res.end(await response.text());
