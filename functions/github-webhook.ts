@@ -215,6 +215,7 @@ async function getOrCreateContributor(
     .from('Contributor')
     .upsert(
       {
+        id: crypto.randomUUID(),
         teamId: teamId,
         githubUserId: githubUserId,
         githubLogin: login,
@@ -252,6 +253,7 @@ async function getOrCreateRepo(
     .from('Repo')
     .upsert(
       {
+        id: crypto.randomUUID(),
         teamId: teamId,
         name: repoName,
         githubRepoId: githubRepoId,
@@ -592,6 +594,7 @@ async function createCommit(
     .from('Commit')
     .upsert(
       {
+        id: crypto.randomUUID(),
         githubCommitId: commit.id,
         message: commit.message,
         linesAdded: commit.stats?.additions || 0,
@@ -635,6 +638,7 @@ async function createOrUpdatePullRequest(
     .from('PullRequest')
     .upsert(
       {
+        id: crypto.randomUUID(),
         githubPrId: pr.id,
         title: pr.title,
         description: pr.body || '',
