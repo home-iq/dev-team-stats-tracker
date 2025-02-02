@@ -558,7 +558,9 @@ async function updateMonthStats(
         id: crypto.randomUUID(),
         teamId: teamId,
         date: startOfMonth.toISOString(),
-        stats: existingStats as Json
+        stats: existingStats as Json,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString()
       });
 
     if (insertError) {
