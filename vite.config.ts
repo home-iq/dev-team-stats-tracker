@@ -2,6 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react-swc";
 import path from "path";
 import { handleWebhook } from './functions/github-webhook';
+import { handleRequest as handleCalendly } from './functions/get-calendly-times';
 import type { Connect } from 'vite';
 import type { ServerResponse } from 'http';
 
@@ -25,6 +26,21 @@ export default defineConfig(({ mode }) => ({
               SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY || ''
             });
             res.statusCode = response.status;
+            res.end(await response.text());
+            return;
+          }
+          next();
+        },
+      },
+      {
+        name: 'get-calendly-times',
+        handle: async (req: Connect.IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
+          if (req.url === '/get-calendly-times' && req.method === 'GET') {
+            const response = await handleCalendly(req as unknown as Request, {
+              CALENDLY_API_TOKEN: process.env.CALENDLY_API_TOKEN || ''
+            });
+            res.statusCode = response.status;
+            res.setHeader('Content-Type', 'application/json');
             res.end(await response.text());
             return;
           }
