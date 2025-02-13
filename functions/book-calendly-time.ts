@@ -1,6 +1,7 @@
 // Types for environment variables
 export interface Env {
   BROWSERLESS_TOKEN: string;
+  VAPI_SECRET: string;  // Add secret to env interface
 }
 
 // Cloudflare Worker types
@@ -132,6 +133,20 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
 const worker = {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     try {
+      // Check for required secret header
+      const authHeader = request.headers.get('x-vapi-secret');
+      if (!authHeader || authHeader !== env.VAPI_SECRET) {
+        return new Response('Unauthorized', { 
+          status: 401,
+          headers: {
+            'Content-Type': 'application/json',
+            'Access-Control-Allow-Origin': '*',
+            'Access-Control-Allow-Methods': 'POST',
+            'Access-Control-Allow-Headers': 'Content-Type, x-vapi-secret'
+          }
+        });
+      }
+
       // Only allow POST requests
       if (request.method !== 'POST') {
         return new Response('Method not allowed', { status: 405 });

@@ -53,7 +53,8 @@ export default defineConfig(({ mode }) => ({
         handle: async (req: Connect.IncomingMessage, res: ServerResponse, next: Connect.NextFunction) => {
           if (req.url === '/book-calendly-time' && req.method === 'POST') {
             const response = await handleBooking(req as unknown as Request, {
-              BROWSERLESS_TOKEN: process.env.BROWSERLESS_TOKEN || ''
+              BROWSERLESS_TOKEN: process.env.BROWSERLESS_TOKEN || '',
+              VAPI_SECRET: process.env.VAPI_SECRET || ''
             });
             res.statusCode = response.status;
             res.setHeader('Content-Type', 'application/json');
