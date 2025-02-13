@@ -1,3 +1,5 @@
+/// <reference lib="dom" />
+
 // Types for environment variables
 export interface Env {
   BROWSERLESS_TOKEN: string;
@@ -17,84 +19,114 @@ interface BookingRequest {
   email: string;
 }
 
+// Response type for booking result
+interface BookingResult {
+  success: boolean;
+  message: string;
+  debug?: {
+    url: string;
+    error?: string;
+    content: string;
+  };
+}
+
 // Main function to book Calendly time
-async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<boolean> {
-  const browserlessEndpoint = `https://myhomeiq-browserless.smallmighty.co/screenshot?token=${env.BROWSERLESS_TOKEN}`;
-  
+async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<BookingResult> {
   try {
     // Construct the Calendly URL with prefilled values
     const name = `${booking.first_name} ${booking.last_name}`;
     const calendlyUrl = `https://calendly.com/jon-myhomeiq/30min/${booking.start_time}?name=${encodeURIComponent(name)}&email=${encodeURIComponent(booking.email)}`;
 
-    // Make a POST request to browserless to execute the script
-    const response = await fetch(browserlessEndpoint, {
+    // Make request to browserless to perform the booking
+    const response = await fetch(`https://myhomeiq-browserless.smallmighty.co/function?token=${env.BROWSERLESS_TOKEN}`, {
       method: 'POST',
       headers: {
-        'Content-Type': 'application/json',
+        'Content-Type': 'application/javascript',
       },
-      body: JSON.stringify({
-        url: calendlyUrl,
-        viewport: {
-          width: 1280,
-          height: 800
-        },
-        waitForFunction: {
-          fn: `async () => {
-            // Wait for the page to be fully loaded
-            await new Promise(resolve => {
-              if (document.readyState === 'complete') {
-                resolve(true);
-              } else {
-                window.addEventListener('load', resolve);
-              }
+      body: `
+        export default async function({ page }) {
+          // Set viewport and timeouts
+          await page.setViewport({ width: 1280, height: 800 });
+          await page.setDefaultNavigationTimeout(15000);
+          
+          try {
+            // Navigate to page and wait 2 seconds
+            await page.goto('${calendlyUrl}');
+            await new Promise(resolve => setTimeout(resolve, 2500));
+
+            // Click the button and wait 2.5 seconds
+            await page.evaluate(() => {
+              const buttons = Array.from(document.querySelectorAll('button'));
+              const scheduleButton = buttons.find(button => button.textContent.trim() === 'Schedule Event');
+              if (scheduleButton) scheduleButton.click();
             });
-            
-            // Wait a bit for any dynamic content
-            await new Promise(resolve => setTimeout(resolve, 2000));
-            
-            console.log('Looking for submit button...');
-            const submitButton = document.querySelector('button[type="submit"]');
-            console.log('Submit button found:', !!submitButton);
-            
-            if (submitButton) {
-              console.log('Clicking submit button...');
-              submitButton.click();
-              
-              // Wait for navigation to complete
-              await new Promise(resolve => {
-                let attempts = 0;
-                const checkUrl = () => {
-                  if (window.location.href.includes('calendly.com/invitees/') || attempts >= 10) {
-                    resolve(true);
-                  } else {
-                    attempts++;
-                    setTimeout(checkUrl, 1000);
-                  }
-                };
-                checkUrl();
+            await new Promise(resolve => setTimeout(resolve, 2500));
+
+            // Check if URL changed
+            const currentUrl = await page.url();
+            if (currentUrl.includes('/invitees/')) {
+              return {
+                data: { success: true, message: 'Appointment booked successfully' },
+                type: 'application/json'
+              };
+            } else {
+              // Check for specific error message
+              const hasErrorMessage = await page.evaluate(() => {
+                const h1s = Array.from(document.querySelectorAll('h1'));
+                return h1s.some(h1 => h1.textContent === 'Sorry, that time is no longer available.');
               });
               
-              return window.location.href.includes('calendly.com/invitees/');
+              if (hasErrorMessage) {
+                return {
+                  data: { success: false, message: 'Sorry, that time is no longer available.' },
+                  type: 'application/json'
+                };
+              } else {
+                return {
+                  data: { success: false, message: 'Something went wrong.' },
+                  type: 'application/json'
+                };
+              }
             }
-            return false;
-          }`,
-          polling: 1000,
-          timeout: 30000
+            
+          } catch (error) {
+            // Get page state if there's an error
+            const currentUrl = await page.url();
+            const pageContent = await page.evaluate(() => document.body.innerText);
+            
+            // Log all details for debugging
+            console.log('Calendly booking error:', {
+              url: currentUrl,
+              error: error.message,
+              content: pageContent.substring(0, 500)
+            });
+            
+            return {
+              data: { success: false, message: 'Something went wrong.' },
+              type: 'application/json'
+            };
+          }
         }
-      })
+      `
     });
 
     if (!response.ok) {
       throw new Error(`Browserless returned ${response.status}: ${await response.text()}`);
     }
 
-    // The screenshot endpoint returns a binary image if successful
-    // If we get here, it means the script completed and returned true
-    return true;
+    const result = await response.json();
+    return {
+      success: result.data.success,
+      message: result.data.message,
+      debug: result.data.debug
+    };
 
   } catch (error) {
     console.error('Error booking Calendly time:', error);
-    return false;
+    return {
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error occurred'
+    };
   }
 }
 
@@ -120,24 +152,19 @@ const worker = {
           }),
           {
             status: 400,
-            headers: {
-              'Content-Type': 'application/json'
-            }
+            headers: { 'Content-Type': 'application/json' }
           }
         );
       }
 
       // Book the time
-      const success = await bookCalendlyTime(env, booking);
+      const result = await bookCalendlyTime(env, booking);
 
       // Return response
       return new Response(
-        JSON.stringify({
-          success,
-          message: success ? 'Appointment booked successfully' : 'Failed to book appointment'
-        }),
+        JSON.stringify(result),
         {
-          status: success ? 200 : 400,
+          status: result.success ? 200 : 400,
           headers: {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
@@ -186,4 +213,4 @@ interface PagesContext {
 export const onRequest = async (context: PagesContext) => {
   const { request, env } = context;
   return handleRequest(request, env);
-}; 
+};
