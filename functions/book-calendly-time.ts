@@ -1,5 +1,3 @@
-/// <reference lib="dom" />
-
 // Types for environment variables
 export interface Env {
   BROWSERLESS_TOKEN: string;
