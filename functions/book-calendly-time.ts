@@ -18,14 +18,30 @@ interface BookingRequest {
   email: string;
 }
 
+// Types for request body
+interface VapiRequest {
+  message: {
+    tool_calls: Array<{
+      function: {
+        arguments: BookingRequest;
+      };
+    }>;
+  };
+}
+
 // Response type for booking result
 interface BookingResult {
-  success: boolean;
-  message: string;
-  debug?: {
-    url: string;
-    error?: string;
-    content: string;
+  data?: {
+    success: boolean;
+    message: string;
+    debug?: {
+      url: string;
+      error?: string;
+      content: string;
+    };
+  };
+  error?: {
+    message: string;
   };
 }
 
@@ -65,7 +81,10 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
             const currentUrl = await page.url();
             if (currentUrl.includes('/invitees/')) {
               return {
-                data: { success: true, message: 'Appointment booked successfully' },
+                data: { 
+                  success: true, 
+                  message: 'Appointment booked successfully' 
+                },
                 type: 'application/json'
               };
             } else {
@@ -77,12 +96,18 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
               
               if (hasErrorMessage) {
                 return {
-                  data: { success: false, message: 'Sorry, that time is no longer available.' },
+                  data: { 
+                    success: false, 
+                    message: 'Sorry, that time is no longer available.' 
+                  },
                   type: 'application/json'
                 };
               } else {
                 return {
-                  data: { success: false, message: 'Something went wrong.' },
+                  data: { 
+                    success: false, 
+                    message: 'Something went wrong.' 
+                  },
                   type: 'application/json'
                 };
               }
@@ -101,7 +126,15 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
             });
             
             return {
-              data: { success: false, message: 'Something went wrong.' },
+              data: { 
+                success: false, 
+                message: 'Something went wrong.',
+                debug: {
+                  url: currentUrl,
+                  error: error.message,
+                  content: pageContent.substring(0, 500)
+                }
+              },
               type: 'application/json'
             };
           }
@@ -113,18 +146,31 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
       throw new Error(`Browserless returned ${response.status}: ${await response.text()}`);
     }
 
-    const result = await response.json();
+    const result = await response.json() as { 
+      data: { 
+        success: boolean; 
+        message: string; 
+        debug?: { 
+          url: string; 
+          error?: string; 
+          content: string; 
+        }; 
+      }; 
+    };
     return {
-      success: result.data.success,
-      message: result.data.message,
-      debug: result.data.debug
+      data: {
+        success: result.data.success,
+        message: result.data.message,
+        debug: result.data.debug
+      }
     };
 
   } catch (error) {
     console.error('Error booking Calendly time:', error);
     return {
-      success: false,
-      message: error instanceof Error ? error.message : 'Unknown error occurred'
+      error: {
+        message: error instanceof Error ? error.message : 'Unknown error'
+      }
     };
   }
 }
@@ -136,7 +182,9 @@ const worker = {
       // Check for required secret header
       const authHeader = request.headers.get('x-vapi-secret');
       if (!authHeader || authHeader !== env.VAPI_SECRET) {
-        return new Response('Unauthorized', { 
+        return new Response(JSON.stringify({ 
+          error: { message: 'Unauthorized' }
+        }), { 
           status: 401,
           headers: {
             'Content-Type': 'application/json',
@@ -149,19 +197,20 @@ const worker = {
 
       // Only allow POST requests
       if (request.method !== 'POST') {
-        return new Response('Method not allowed', { status: 405 });
+        return new Response(JSON.stringify({
+          error: { message: 'Method not allowed' }
+        }), { status: 405 });
       }
 
       // Parse request body
-      const booking = await request.json() as BookingRequest;
+      const vapiRequest = await request.json() as VapiRequest;
+      const booking = vapiRequest.message.tool_calls[0].function.arguments;
 
       // Validate required fields
       if (!booking.start_time || !booking.first_name || !booking.last_name || !booking.email) {
         return new Response(
           JSON.stringify({
-            success: false,
-            error: 'Missing required fields',
-            message: 'start_time, first_name, last_name, and email are required'
+            error: { message: 'start_time, first_name, last_name, and email are required' }
           }),
           {
             status: 400,
@@ -177,12 +226,12 @@ const worker = {
       return new Response(
         JSON.stringify(result),
         {
-          status: result.success ? 200 : 400,
+          status: result.data?.success ? 200 : 400,
           headers: {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
             'Access-Control-Allow-Methods': 'POST',
-            'Access-Control-Allow-Headers': 'Content-Type'
+            'Access-Control-Allow-Headers': 'Content-Type, x-vapi-secret'
           }
         }
       );
@@ -190,9 +239,7 @@ const worker = {
       console.error('Error processing request:', err);
       return new Response(
         JSON.stringify({
-          success: false,
-          error: 'Internal server error',
-          message: err instanceof Error ? err.message : 'Unknown error'
+          error: { message: err instanceof Error ? err.message : 'Unknown error' }
         }),
         {
           status: 500,
