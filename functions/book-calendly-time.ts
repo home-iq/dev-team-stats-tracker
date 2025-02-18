@@ -21,7 +21,7 @@ interface BookingRequest {
 // Types for request body
 interface VapiRequest {
   message: {
-    tool_calls: Array<{
+    toolCalls: Array<{
       function: {
         arguments: BookingRequest;
       };
@@ -204,7 +204,32 @@ const worker = {
 
       // Parse request body
       const vapiRequest = await request.json() as VapiRequest;
-      const booking = vapiRequest.message.tool_calls[0].function.arguments;
+      console.log('Received Vapi request:', JSON.stringify(vapiRequest, null, 2));
+      
+      // Validate Vapi request structure
+      if (!vapiRequest?.message?.toolCalls?.length) {
+        console.log('Invalid Vapi request structure:', vapiRequest);
+        return new Response(
+          JSON.stringify({
+            error: { message: 'Invalid request format' }
+          }),
+          {
+            status: 400,
+            headers: { 'Content-Type': 'application/json' }
+          }
+        );
+      }
+
+      const booking = vapiRequest.message.toolCalls[0].function.arguments;
+      console.log('Booking details:', JSON.stringify(booking, null, 2));
+
+      // Log validation details
+      console.log('Validation check details:', {
+        start_time: booking.start_time || false,
+        first_name: booking.first_name || false,
+        last_name: booking.last_name || false,
+        email: booking.email || false
+      });
 
       // Validate required fields
       if (!booking.start_time || !booking.first_name || !booking.last_name || !booking.email) {
