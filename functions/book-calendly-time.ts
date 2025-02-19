@@ -22,6 +22,7 @@ interface BookingRequest {
 interface VapiRequest {
   message: {
     toolCalls: Array<{
+      id: string;  // This is the toolCallId we need
       function: {
         arguments: BookingRequest;
       };
@@ -29,19 +30,21 @@ interface VapiRequest {
   };
 }
 
+interface VapiResponse {
+  results: Array<{
+    toolCallId: string;
+    result: any;  // Can be any type: object, string, number, etc.
+  }>;
+}
+
 // Response type for booking result
 interface BookingResult {
-  data?: {
-    success: boolean;
-    message: string;
-    debug?: {
-      url: string;
-      error?: string;
-      content: string;
-    };
-  };
-  error?: {
-    message: string;
+  success: boolean;
+  message: string;
+  debug?: {
+    url: string;
+    error?: string;
+    content: string;
   };
 }
 
@@ -158,19 +161,16 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
       }; 
     };
     return {
-      data: {
-        success: result.data.success,
-        message: result.data.message,
-        debug: result.data.debug
-      }
+      success: result.data.success,
+      message: result.data.message,
+      debug: result.data.debug
     };
 
   } catch (error) {
     console.error('Error booking Calendly time:', error);
     return {
-      error: {
-        message: error instanceof Error ? error.message : 'Unknown error'
-      }
+      success: false,
+      message: error instanceof Error ? error.message : 'Unknown error'
     };
   }
 }
@@ -247,11 +247,21 @@ const worker = {
       // Book the time
       const result = await bookCalendlyTime(env, booking);
 
+      // Format response for Vapi
+      const vapiResponse: VapiResponse = {
+        results: [{
+          toolCallId: vapiRequest.message.toolCalls[0].id,
+          result: result  // No need to stringify, can pass the object directly
+        }]
+      };
+
+      console.log('Returning to Vapi:', JSON.stringify(vapiResponse, null, 2));
+
       // Return response
       return new Response(
-        JSON.stringify(result),
+        JSON.stringify(vapiResponse),
         {
-          status: result.data?.success ? 200 : 400,
+          status: result.success ? 200 : 400,
           headers: {
             'Content-Type': 'application/json',
             'Access-Control-Allow-Origin': '*',
