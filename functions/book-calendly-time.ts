@@ -33,7 +33,7 @@ interface VapiRequest {
 interface VapiResponse {
   results: Array<{
     toolCallId: string;
-    result: any;  // Can be any type: object, string, number, etc.
+    result: BookingResult;  // Using our specific type instead of any
   }>;
 }
 
@@ -82,6 +82,7 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
 
             // Check if URL changed
             const currentUrl = await page.url();
+            console.log('Final Calendly URL:', currentUrl);
             if (currentUrl.includes('/invitees/')) {
               return {
                 data: { 
@@ -101,7 +102,10 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
                 return {
                   data: { 
                     success: false, 
-                    message: 'Sorry, that time is no longer available.' 
+                    message: 'Sorry, that time is no longer available.',
+                    debug: {
+                      url: currentUrl
+                    }
                   },
                   type: 'application/json'
                 };
@@ -109,7 +113,10 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
                 return {
                   data: { 
                     success: false, 
-                    message: 'Something went wrong.' 
+                    message: 'Something went wrong.',
+                    debug: {
+                      url: currentUrl
+                    }
                   },
                   type: 'application/json'
                 };
@@ -160,11 +167,13 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
         }; 
       }; 
     };
-    return {
+    const bookingResult = {
       success: result.data.success,
       message: result.data.message,
       debug: result.data.debug
     };
+    console.log('BookingResult:', JSON.stringify(bookingResult, null, 2));
+    return bookingResult;
 
   } catch (error) {
     console.error('Error booking Calendly time:', error);
@@ -221,7 +230,6 @@ const worker = {
       }
 
       const booking = vapiRequest.message.toolCalls[0].function.arguments;
-      console.log('Booking details:', JSON.stringify(booking, null, 2));
 
       // Log validation details
       console.log('Validation check details:', {
