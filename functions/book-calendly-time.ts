@@ -68,26 +68,48 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
           await page.setDefaultNavigationTimeout(15000);
           
           try {
-            // Navigate to page and wait 2 seconds
+            // Navigate to page and wait 3.5 seconds
             await page.goto('${calendlyUrl}');
-            await new Promise(resolve => setTimeout(resolve, 2500));
+            await new Promise(resolve => setTimeout(resolve, 3500));
 
-            // Click the button and wait 2.5 seconds
+            // Fill in form fields if empty and click button
             await page.evaluate(() => {
+              const nameInput = document.querySelector('input[name="full_name"]');
+              const emailInput = document.querySelector('input[name="email"]');
+              const urlParams = new URLSearchParams(window.location.search);
+              
+              // Fill fields if they're empty
+              if (nameInput && !nameInput.value) {
+                nameInput.value = urlParams.get('name') || '';
+                nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+              }
+              
+              if (emailInput && !emailInput.value) {
+                emailInput.value = urlParams.get('email') || '';
+                emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+              }
+
+              // Find and click the button
               const buttons = Array.from(document.querySelectorAll('button'));
               const scheduleButton = buttons.find(button => button.textContent.trim() === 'Schedule Event');
               if (scheduleButton) scheduleButton.click();
             });
             await new Promise(resolve => setTimeout(resolve, 2500));
 
-            // Check if URL changed
+            // Check if URL changed and get page content
             const currentUrl = await page.url();
+            const pageContent = await page.evaluate(() => document.body.innerText);
             console.log('Final Calendly URL:', currentUrl);
+
             if (currentUrl.includes('/invitees/')) {
               return {
                 data: { 
                   success: true, 
-                  message: 'Appointment booked successfully' 
+                  message: 'Appointment booked successfully',
+                  debug: {
+                    url: currentUrl,
+                    content: pageContent.substring(0, 500)
+                  }
                 },
                 type: 'application/json'
               };
@@ -104,7 +126,8 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
                     success: false, 
                     message: 'Sorry, that time is no longer available.',
                     debug: {
-                      url: currentUrl
+                      url: currentUrl,
+                      content: pageContent.substring(0, 500)
                     }
                   },
                   type: 'application/json'
@@ -115,7 +138,8 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
                     success: false, 
                     message: 'Something went wrong.',
                     debug: {
-                      url: currentUrl
+                      url: currentUrl,
+                      content: pageContent.substring(0, 500)
                     }
                   },
                   type: 'application/json'
