@@ -29,12 +29,7 @@ interface EnrichedAvailableTime extends CalendlyAvailableTime {
 }
 
 // Main function to get Calendly times
-async function getCalendlyTimes(env: Env): Promise<EnrichedAvailableTime[]> {
-  // Constant array of event type IDs (using full resource URLs)
-  const eventTypeIds = [
-    "https://api.calendly.com/event_types/c4fe39b5-c6bb-41fa-a035-1d3c79de3c7e"
-  ];
-
+async function getCalendlyTimes(env: Env, eventTypeId: string): Promise<EnrichedAvailableTime[]> {
   // Calculate timestamps
   const now = new Date();
   const fifteenMinutesFromNow = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
@@ -43,37 +38,34 @@ async function getCalendlyTimes(env: Env): Promise<EnrichedAvailableTime[]> {
   // Array to collect all available time objects
   const availableTimes: EnrichedAvailableTime[] = [];
 
-  // Loop through each event type id
-  for (const eventTypeId of eventTypeIds) {
-    const url = `https://api.calendly.com/event_type_available_times?event_type=${encodeURIComponent(eventTypeId)}&start_time=${encodeURIComponent(fifteenMinutesFromNow)}&end_time=${encodeURIComponent(sixDaysLater)}`;
+  const url = `https://api.calendly.com/event_type_available_times?event_type=${encodeURIComponent(eventTypeId)}&start_time=${encodeURIComponent(fifteenMinutesFromNow)}&end_time=${encodeURIComponent(sixDaysLater)}`;
+  
+  try {
+    console.log('Using token:', env.CALENDLY_API_TOKEN ? 'Token exists' : 'No token found');
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        'Authorization': `Bearer ${env.CALENDLY_API_TOKEN}`,
+        'Content-Type': 'application/json'
+      }
+    });
     
-    try {
-      console.log('Using token:', env.CALENDLY_API_TOKEN ? 'Token exists' : 'No token found');
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${env.CALENDLY_API_TOKEN}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      
-      if (!response.ok) {
-        console.error(`Error fetching for event type ${eventTypeId}: ${response.statusText}`);
-        continue;
-      }
-      
-      const data = await response.json() as CalendlyResponse;
-      
-      if (data.collection && Array.isArray(data.collection)) {
-        const enrichedTimes = data.collection.map(item => ({
-          ...item,
-          event_type_id: eventTypeId
-        }));
-        availableTimes.push(...enrichedTimes);
-      }
-    } catch (error) {
-      console.error(`Error processing event type ${eventTypeId}:`, error);
+    if (!response.ok) {
+      console.error(`Error fetching for event type ${eventTypeId}: ${response.statusText}`);
+      return [];
     }
+    
+    const data = await response.json() as CalendlyResponse;
+    
+    if (data.collection && Array.isArray(data.collection)) {
+      const enrichedTimes = data.collection.map(item => ({
+        ...item,
+        event_type_id: eventTypeId
+      }));
+      availableTimes.push(...enrichedTimes);
+    }
+  } catch (error) {
+    console.error(`Error processing event type ${eventTypeId}:`, error);
   }
 
   // Sort availableTimes in ascending order
@@ -89,11 +81,42 @@ const worker = {
         return new Response('Method not allowed', { status: 405 });
       }
 
-      // Get Calendly times
-      const times = await getCalendlyTimes(env);
+      // Parse the URL to extract the 'url' parameter
+      const url = new URL(request.url);
+      const eventTypeId = url.searchParams.get('url');
 
-      // Return the response
-      return new Response(JSON.stringify({ success: true, data: times }), {
+      // Check if the URL parameter is provided
+      if (!eventTypeId) {
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: 'Bad Request',
+            message: 'The "url" parameter is required'
+          }), 
+          { 
+            status: 400,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            }
+          }
+        );
+      }
+
+      // Get Calendly times
+      const times = await getCalendlyTimes(env, eventTypeId);
+      
+      // Create a comma-delimited string of start times
+      const startTimesString = times.map(time => time.start_time).join(',');
+
+      // Return the response with startTimes first in the data object
+      return new Response(JSON.stringify({ 
+        success: true, 
+        data: {
+          startTimes: startTimesString,
+          times: times
+        }
+      }), {
         status: 200,
         headers: {
           'Content-Type': 'application/json',
