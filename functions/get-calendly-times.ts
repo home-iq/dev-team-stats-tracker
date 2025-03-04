@@ -29,7 +29,7 @@ interface EnrichedAvailableTime extends CalendlyAvailableTime {
 }
 
 // Main function to get Calendly times
-async function getCalendlyTimes(env: Env, eventTypeId: string): Promise<EnrichedAvailableTime[]> {
+async function getCalendlyTimes(eventTypeId: string, calendlyToken: string): Promise<EnrichedAvailableTime[]> {
   // Calculate timestamps
   const now = new Date();
   const fifteenMinutesFromNow = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
@@ -41,11 +41,11 @@ async function getCalendlyTimes(env: Env, eventTypeId: string): Promise<Enriched
   const url = `https://api.calendly.com/event_type_available_times?event_type=${encodeURIComponent(eventTypeId)}&start_time=${encodeURIComponent(fifteenMinutesFromNow)}&end_time=${encodeURIComponent(sixDaysLater)}`;
   
   try {
-    console.log('Using token:', env.CALENDLY_API_TOKEN ? 'Token exists' : 'No token found');
+    console.log('Using provided Calendly token');
     const response = await fetch(url, {
       method: 'GET',
       headers: {
-        'Authorization': `Bearer ${env.CALENDLY_API_TOKEN}`,
+        'Authorization': `Bearer ${calendlyToken}`,
         'Content-Type': 'application/json'
       }
     });
@@ -103,8 +103,35 @@ const worker = {
         );
       }
 
+      // Get the Calendly token from the Authorization header
+      const authHeader = request.headers.get('Authorization');
+      let calendlyToken = '';
+      
+      // Check if Authorization header exists and has the correct format
+      if (authHeader && authHeader.startsWith('Bearer ')) {
+        calendlyToken = authHeader.substring(7); // Remove 'Bearer ' prefix
+      }
+      
+      // Ensure we have a token
+      if (!calendlyToken) {
+        return new Response(
+          JSON.stringify({ 
+            success: false, 
+            error: 'Unauthorized',
+            message: 'A valid Authorization header with a Calendly API token is required'
+          }), 
+          { 
+            status: 401,
+            headers: {
+              'Content-Type': 'application/json',
+              'Access-Control-Allow-Origin': '*'
+            }
+          }
+        );
+      }
+
       // Get Calendly times
-      const times = await getCalendlyTimes(env, eventTypeId);
+      const times = await getCalendlyTimes(eventTypeId, calendlyToken);
       
       // Create a comma-delimited string of start times
       const startTimesString = times.map(time => time.start_time).join(',');
@@ -122,7 +149,7 @@ const worker = {
           'Content-Type': 'application/json',
           'Access-Control-Allow-Origin': '*', // Enable CORS
           'Access-Control-Allow-Methods': 'GET',
-          'Access-Control-Allow-Headers': 'Content-Type'
+          'Access-Control-Allow-Headers': 'Content-Type, Authorization'
         }
       });
     } catch (err) {
