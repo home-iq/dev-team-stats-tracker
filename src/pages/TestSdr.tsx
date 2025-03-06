@@ -3,6 +3,8 @@ import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { toast } from "sonner";
+import { motion } from "framer-motion";
+import { LoadingSpinner } from "@/components/LoadingSpinner";
 
 import {
   Form,
@@ -26,6 +28,25 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 const TestSdr = () => {
+  const [isLoading, setIsLoading] = useState(true);
+  const [showContent, setShowContent] = useState(false);
+
+  // Simulate loading with a delay
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setIsLoading(false);
+      
+      // Add a small delay before showing content for a smooth transition
+      const contentTimer = setTimeout(() => {
+        setShowContent(true);
+      }, 200);
+      
+      return () => clearTimeout(contentTimer);
+    }, 1000);
+    
+    return () => clearTimeout(timer);
+  }, []);
+
   // Get stored values from localStorage if they exist
   const getStoredValues = (): Partial<FormValues> => {
     const storedValues = localStorage.getItem("test-sdr-form");
@@ -82,6 +103,29 @@ const TestSdr = () => {
       setIsSubmitting(false);
     }
   };
+
+  // Don't render anything until we have initial data
+  if (isLoading) {
+    return (
+      <div className="min-h-screen p-6 md:p-8 flex items-center justify-center">
+        <LoadingSpinner />
+      </div>
+    );
+  }
+
+  if (!showContent) {
+    return (
+      <div className="min-h-screen p-6 md:p-8 flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 1 }}
+          animate={{ opacity: 0 }}
+          transition={{ duration: 0.2 }}
+        >
+          <LoadingSpinner />
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="container max-w-md mx-auto py-10">

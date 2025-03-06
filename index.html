@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" style="background-color: hsl(230, 47%, 11%);">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -18,9 +18,16 @@
     <meta name="twitter:title" content="myHomeIQ Dev Team Stats Tracker" />
     <meta name="twitter:description" content="Real-time GitHub activity tracking and contribution analytics" />
     <meta name="twitter:image" content="/og-image.png" />
+    
+    <style>
+      /* Prevent white flash during page load */
+      html, body {
+        background-color: hsl(230, 47%, 11%);
+      }
+    </style>
   </head>
 
-  <body>
+  <body style="background-color: hsl(230, 47%, 11%);">
     <div id="root"></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
