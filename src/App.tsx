@@ -4,6 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
+import TestSdr from "./pages/TestSdr";
 
 const queryClient = new QueryClient();
 
@@ -18,6 +19,7 @@ const App = () => (
           <Route path="/:month" element={<Index />} />
           <Route path="/contributor/:contributorId" element={<Index />} />
           <Route path="/contributor/:contributorId/:month" element={<Index />} />
+          <Route path="/test-sdr" element={<TestSdr />} />
         </Routes>
       </BrowserRouter>
     </TooltipProvider>
