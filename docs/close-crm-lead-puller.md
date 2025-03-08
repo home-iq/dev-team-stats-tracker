@@ -1,13 +1,14 @@
 # Documentation: Close CRM Lead Puller
 
 ## Overview
-This code retrieves leads from a Close CRM smart view, processes them to extract key information, and returns a structured dataset. It implements proper pagination and rate limit handling to reliably fetch large numbers of leads.
+This code retrieves leads from a Close CRM smart view, processes them to extract key information, and returns a structured dataset. It implements proper pagination and rate limit handling to reliably fetch large numbers of leads. It also identifies which leads in the Google Sheet need to be retired (no longer in the Smart View) and which are still valid.
 
 ## Purpose
 The code serves as an n8n node that:
 1. Fetches leads matching a specific smart view in Close CRM
 2. Extracts contact information (name, email, phone)
-3. Formats the data for further processing or export to Google Sheets
+3. Identifies leads that need to be retired (no longer in the Smart View)
+4. Formats the data for further processing or export to Google Sheets
 
 ## Configuration
 
@@ -71,15 +72,56 @@ while (hasMore) {
 }
 ```
 
-### Step 3: Fetch Lead Details
-For each lead ID, the code fetches complete lead details in batches of 10:
+### Step 3: Filter and Categorize Leads
+The code compares the leads from the Smart View with those in the Google Sheet to:
+- Identify new leads to be added to the Google Sheet
+- Identify existing leads that are still valid
+- Identify leads that need to be retired (no longer in the Smart View)
+
+```javascript
+// Get the Close IDs from the Google Sheet input
+const existingCloseIds = $input.all().map(item => item.json.closeId || item.json["Close ID"] || "").filter(id => id !== "");
+
+// Find which existing leads are still valid in the Smart View and which need to be retired
+const existingValidLeads = existingCloseIds.filter(id => allLeadIds.includes(id));
+  
+// Convert retiring lead IDs to objects with closeId property
+const existingRetiringLeads = existingCloseIds
+  .filter(id => !allLeadIds.includes(id))
+  .map(id => {
+    // Find the original item from Google Sheet to get any additional data we might need
+    const originalItem = $input.all().find(item => 
+      (item.json.closeId === id) || (item.json["Close ID"] === id)
+    );
+    
+    return {
+      closeId: id,
+      // Include any other fields we might want to preserve or reference
+      firstName: originalItem?.json.firstName || originalItem?.json["First Name"] || "",
+      lastName: originalItem?.json.lastName || originalItem?.json["Last Name"] || "",
+      email: originalItem?.json.email || originalItem?.json["Email"] || ""
+    };
+  });
+
+// Filter out leads that already exist in the Google Sheet
+const filteredLeadIds = allLeadIds.filter(id => !existingCloseIds.includes(id));
+
+console.log(`Found ${allLeadIds.length} total leads from Close AI SDR Smart View`);
+console.log(`Found ${existingCloseIds.length} existing leads in Google Sheet`);
+console.log(`${existingValidLeads.length} existing leads are still valid in Close AI SDR Smart View`);
+console.log(`${existingRetiringLeads.length} existing leads need to be retired (no longer in Close AI SDR Smart View)`);
+console.log(`${filteredLeadIds.length} new leads to process and add to Google Sheet`);
+```
+
+### Step 4: Fetch Lead Details
+For each new lead ID, the code fetches complete lead details in batches of 10:
 
 ```javascript
 const batchPromises = batch.map(id => makeRequest('GET', `/lead/${id}/?_fields=_all`));
 const batchResults = await Promise.all(batchPromises);
 ```
 
-### Step 4: Process Lead Data
+### Step 5: Process Lead Data
 Each lead is processed to extract:
 - First and last name (parsed from display_name, handling middle initials)
 - Email address
@@ -114,24 +156,22 @@ if (response.status === 429) {
 ## Output Format
 
 The code returns a JSON object with:
-1. `count`: The total number of leads processed
-2. `leads`: An array of processed lead objects
-
-Each lead object contains:
-- `firstName`: First name extracted from display_name
-- `lastName`: Last name extracted from display_name
-- `email`: Primary email address
-- `phone`: Primary phone number
-- `createdAt`: Lead creation date
-- `closeId`: Close CRM lead ID
-- `salesperson`: Assigned salesperson's name
+1. `counts`: Numerical summaries of each lead category
+2. `newLeads`: An array of new leads to be added to the Google Sheet
+3. `validExistingLeads`: An array of lead IDs that exist in both the Google Sheet and the Smart View
+4. `retiringLeads`: An array of lead IDs that exist in the Google Sheet but not in the Smart View
 
 Example output:
 
 ```json
 {
-  "count": 150,
-  "leads": [
+  "counts": {
+    "newLeads": 15,
+    "validExistingLeads": 120,
+    "retiringLeads": 5,
+    "totalLeadsInSmartView": 135
+  },
+  "newLeads": [
     {
       "firstName": "John",
       "lastName": "Smith",
@@ -142,6 +182,26 @@ Example output:
       "salesperson": "Jane Doe"
     },
     // More leads...
+  ],
+  "validExistingLeads": [
+    "lead_abc123",
+    "lead_def456",
+    // More lead IDs...
+  ],
+  "retiringLeads": [
+    {
+      "closeId": "lead_xyz789",
+      "firstName": "Michael",
+      "lastName": "Johnson",
+      "email": "michael.johnson@example.com"
+    },
+    {
+      "closeId": "lead_uvw321",
+      "firstName": "Sarah",
+      "lastName": "Williams",
+      "email": "sarah.williams@example.com"
+    },
+    // More lead objects...
   ]
 }
 ```
@@ -165,10 +225,25 @@ Example output:
 
 ## Integration with n8n
 
-This code is designed to be used in an n8n Code node. The output can be passed to:
-1. A Google Sheets node to write the data to a spreadsheet
-2. A Function node for further processing
-3. Any other n8n node that can work with JSON data
+This code is designed to be used in an n8n Code node. The output can be used to:
+1. Add new leads to a Google Sheet
+2. Update existing leads in the Google Sheet
+3. Mark leads as "retired" in the Google Sheet when they're no longer in the Smart View
+
+### Workflow Integration Steps:
+1. **For retiring leads**: 
+   - Use a "Split In Items" node to process the `retiringLeads` array
+   - Set "Value to Split" to `data.json.retiringLeads`
+   - Connect to a Google Sheets node with Operation set to "Update"
+   - Set "Key" to "Close ID" (or "closeId" - match your column name)
+   - Set "Key Value" to `{{$json.closeId}}` (using the closeId property from each object)
+   - Add a field to update:
+     - Field name: "Status"
+     - Field value: "retired"
+
+2. **For new leads**:
+   - Use a "Google Sheets" node to append the `newLeads` array to your Google Sheet
+   - Enable "Minimise API Calls" for better performance
 
 ## Maintenance
 
@@ -308,6 +383,43 @@ try {
     }
   }
   
+  // Filter out leads that are already in the Google Sheet
+  // Get the Close IDs from the Google Sheet input
+  const existingCloseIds = $input.all().map(item => item.json.closeId || item.json["Close ID"] || "").filter(id => id !== "");
+
+  // Find which existing leads are still valid in the Smart View and which need to be retired
+  const existingValidLeads = existingCloseIds.filter(id => allLeadIds.includes(id));
+  
+  // Convert retiring lead IDs to objects with closeId property
+  const existingRetiringLeads = existingCloseIds
+    .filter(id => !allLeadIds.includes(id))
+    .map(id => {
+      // Find the original item from Google Sheet to get any additional data we might need
+      const originalItem = $input.all().find(item => 
+        (item.json.closeId === id) || (item.json["Close ID"] === id)
+      );
+      
+      return {
+        closeId: id,
+        // Include any other fields we might want to preserve or reference
+        firstName: originalItem?.json.firstName || originalItem?.json["First Name"] || "",
+        lastName: originalItem?.json.lastName || originalItem?.json["Last Name"] || "",
+        email: originalItem?.json.email || originalItem?.json["Email"] || ""
+      };
+    });
+
+  // Filter out leads that already exist in the Google Sheet
+  const filteredLeadIds = allLeadIds.filter(id => !existingCloseIds.includes(id));
+
+  console.log(`Found ${allLeadIds.length} total leads from Close AI SDR Smart View`);
+  console.log(`Found ${existingCloseIds.length} existing leads in Google Sheet`);
+  console.log(`${existingValidLeads.length} existing leads are still valid in Close AI SDR Smart View`);
+  console.log(`${existingRetiringLeads.length} existing leads need to be retired (no longer in Close AI SDR Smart View)`);
+  console.log(`${filteredLeadIds.length} new leads to process and add to Google Sheet`);
+  
+  // Use the filtered list for further processing
+  allLeadIds = filteredLeadIds;
+  
   // Step 2: Fetch complete data for each lead ID
   let processedLeads = [];
   
@@ -388,11 +500,20 @@ try {
     }
   }
   
-  // Return the processed leads with count above leads
+  // Return the processed leads with counts and grouped data
   return {
     json: {
-      count: processedLeads.length,
-      leads: processedLeads
+      // Counts section
+      counts: {
+        newLeads: processedLeads.length,
+        validExistingLeads: existingValidLeads.length,
+        retiringLeads: existingRetiringLeads.length,
+        totalLeadsInSmartView: allLeadIds.length + existingValidLeads.length
+      },
+      // Data section
+      newLeads: processedLeads,
+      validExistingLeads: existingValidLeads,
+      retiringLeads: existingRetiringLeads
     }
   };
 } catch (error) {
