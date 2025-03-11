@@ -10,6 +10,7 @@ The code serves as a bridge between VAPI's call API and a Google Sheet tracking 
 3. Tracks call counts and statuses
 4. Provides easy access to call recordings
 5. Calculates and displays call durations
+6. Extracts and formats booking information when a demo is scheduled
 
 ## Input Requirements
 The function expects input from a VAPI API call with the following structure:
@@ -19,7 +20,7 @@ The function expects input from a VAPI API call with the following structure:
 - `createdAt`: When the call was created
 - `startedAt` and `endedAt`: Timestamps for call duration calculation (for ended calls)
 - `stereoRecordingUrl`: URL to the call recording (for ended calls)
-- `messages`: Array of messages from the call
+- `messages`: Array of messages from the call, including tool call results for bookings
 
 ## Call Log Format
 The function creates structured call log entries based on the call status:
@@ -48,6 +49,17 @@ The function creates structured call log entries based on the call status:
 - The call count is only incremented for new calls (status: "queued")
 - This ensures accurate tracking of total calls made
 
+## Booking Information Handling
+- When a call includes a successful booking via the `bookCalendlyTime` function, the script extracts:
+  - Day of week (abbreviated)
+  - Date (month and day)
+  - Time
+  - Timezone (abbreviated)
+- This information is formatted as: "Tue, March 11 @ 3:30 PM PT"
+- The formatted booking information is:
+  - Added to the `callStatusMessage` and `slackStatusMessage`
+  - Stored in the `bookingSuccessful` field for use in Google Sheets
+
 ## Integration with Google Sheets
 The function is designed to work with a Google Sheets node in n8n:
 1. It reads existing call log data from a previous node
@@ -71,7 +83,7 @@ The function returns a JSON object with these fields:
 - `recordingUrl`: URL to the call recording (for ended calls)
 - `userTalked`: Boolean indicating if the user talked during the call
 - `userMessageCount`: Number of user messages during the call
-- `bookingSuccessful`: Boolean indicating if the bookCalendlyTime function was called successfully
+- `bookingSuccessful`: String with formatted booking information if a booking was made, or false if no booking
 
 ## Usage in n8n Workflow
 This function is designed to be used in an n8n workflow with:
@@ -90,9 +102,101 @@ When maintaining this code, consider:
 - Updating the log format if additional call information becomes available
 - Adding error handling for missing or malformed VAPI responses
 - Extending the status handling for any new VAPI call statuses
+- Updating the booking information extraction if the Calendly response format changes
 
 ## Complete Code
 ```javascript
+// Function to extract booking information from the messages
+function extractBookingInfo(messages) {
+  // Find the successful booking result
+  const bookingResult = messages.find(msg => 
+    msg.role === "tool_call_result" && 
+    msg.name === "bookCalendlyTime" && 
+    msg.result && 
+    msg.result.success === true
+  );
+  
+  if (!bookingResult) return null;
+  
+  // Get the booking URL
+  const bookingUrl = bookingResult.result.debug.url;
+  
+  // Extract meeting details from content
+  const content = bookingResult.result.debug.content;
+  
+  // Find the line with the meeting time
+  const lines = content.split('\n');
+  let meetingInfoLine = '';
+  let timezoneLine = '';
+  
+  for (let i = 0; i < lines.length; i++) {
+    if (lines[i].includes(':') && lines[i].includes(',') && 
+        (lines[i].includes('AM') || lines[i].includes('PM'))) {
+      meetingInfoLine = lines[i].trim();
+      // Timezone is typically on the next line
+      if (i + 1 < lines.length) {
+        timezoneLine = lines[i + 1].trim();
+      }
+      break;
+    }
+  }
+  
+  if (!meetingInfoLine) return null;
+  
+  // Parse the meeting info
+  // Format is typically: "15:30 - 16:00, Tuesday, March 11, 2025"
+  const parts = meetingInfoLine.split(',').map(p => p.trim());
+  const timeRange = parts[0];
+  const dayOfWeek = parts[1]; // "Tuesday"
+  const date = parts[2]; // "March 11, 2025" or "March 11"
+  
+  // Extract just the start time from the time range (15:30 - 16:00)
+  const startTime = timeRange.split(' - ')[0];
+  
+  // Convert to 12-hour format if needed
+  let formattedTime = startTime;
+  if (startTime.includes(':')) {
+    const [hours, minutes] = startTime.split(':').map(Number);
+    const period = hours >= 12 ? 'PM' : 'AM';
+    const hour12 = hours % 12 || 12; // Convert 0 to 12
+    formattedTime = `${hour12}:${minutes.toString().padStart(2, '0')} ${period}`;
+  }
+  
+  // Get abbreviated day of week (Tue from Tuesday)
+  const dayAbbrev = dayOfWeek.substring(0, 3);
+  
+  // Parse date to get just "March 11" without the year
+  let monthDay = date;
+  if (date.includes(',')) {
+    monthDay = date.split(',')[0].trim();
+  }
+  
+  // Parse timezone (typically "Pacific Time - US & Canada")
+  let timezoneAbbrev = 'PT'; // Default
+  if (timezoneLine.includes('Pacific')) {
+    timezoneAbbrev = 'PT';
+  } else if (timezoneLine.includes('Eastern')) {
+    timezoneAbbrev = 'ET';
+  } else if (timezoneLine.includes('Central')) {
+    timezoneAbbrev = 'CT';
+  } else if (timezoneLine.includes('Mountain')) {
+    timezoneAbbrev = 'MT';
+  } else if (timezoneLine.includes('Alaska')) {
+    timezoneAbbrev = 'AKT';
+  } else if (timezoneLine.includes('Hawaii')) {
+    timezoneAbbrev = 'HT';
+  }
+  
+  // Format the human-readable string in the requested format
+  const formattedBooking = `${dayAbbrev}, ${monthDay} @ ${formattedTime} ${timezoneAbbrev}`;
+  
+  return {
+    formattedString: formattedBooking,
+    url: bookingUrl,
+    success: true
+  };
+}
+
 // Get the VAPI response data directly from the input
 const callId = $input.first().json.id;
 const callStatus = $input.first().json.status;
@@ -122,16 +226,9 @@ if (callStatus === "ended" && messages && messages.length > 0) {
   userMessageCount = userMessages.length;
   userTalked = userMessageCount > 0;
   
-  // Check for successful bookCalendlyTime calls
-  const toolCallResults = messages.filter(msg => 
-    msg.role === "tool_call_result" && 
-    msg.name === "bookCalendlyTime" && 
-    msg.result && 
-    typeof msg.result === "object" && 
-    msg.result.success === true
-  );
-  
-  bookingSuccessful = toolCallResults.length > 0;
+  // Check for successful bookCalendlyTime calls and extract booking info
+  const bookingInfo = extractBookingInfo(messages);
+  bookingSuccessful = bookingInfo ? bookingInfo.formattedString : false;
 }
 
 // Format the date for the log entry
@@ -191,6 +288,12 @@ if (callStatus === "ended") {
     ? `<${recordingUrl}|Click to Listen>`
     : "No recording available";
   slackStatusMessage = `*Call Completed with ${contactName}*\n  • Duration: ${durationText}\n  • Recording: ${slackRecordingLink}`;
+  
+  // Add booking information if available
+  if (bookingSuccessful) {
+    callStatusMessage += `\n${bookingSuccessful}`;
+    slackStatusMessage += `\n  • Booked: ${bookingSuccessful}`;
+  }
   
 } else if (callStatus === "queued") {
   newLogEntry = `:: Started call: ${callId}\n  :: Date: ${formattedDate}`;
