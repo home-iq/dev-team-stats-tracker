@@ -19,6 +19,7 @@ The function expects input from a VAPI API call with the following structure:
 - `createdAt`: When the call was created
 - `startedAt` and `endedAt`: Timestamps for call duration calculation (for ended calls)
 - `stereoRecordingUrl`: URL to the call recording (for ended calls)
+- `messages`: Array of messages from the call
 
 ## Call Log Format
 The function creates structured call log entries based on the call status:
@@ -68,6 +69,9 @@ The function returns a JSON object with these fields:
 - `lastCallId`: The ID of the current call
 - `lastCallDate`: The timestamp of the current call
 - `recordingUrl`: URL to the call recording (for ended calls)
+- `userTalked`: Boolean indicating if the user talked during the call
+- `userMessageCount`: Number of user messages during the call
+- `bookingSuccessful`: Boolean indicating if the bookCalendlyTime function was called successfully
 
 ## Usage in n8n Workflow
 This function is designed to be used in an n8n workflow with:
@@ -94,6 +98,7 @@ const callId = $input.first().json.id;
 const callStatus = $input.first().json.status;
 const customerPhone = $input.first().json.customer?.number || "Unknown";
 const callCreatedAt = $input.first().json.createdAt;
+const messages = $input.first().json.messages || []; // Extract messages array
 
 // Check if we have a valid call ID
 if (!callId) {
@@ -103,6 +108,30 @@ if (!callId) {
       error: "Missing call ID in VAPI response"
     }
   };
+}
+
+// Check if user talked and count how many times
+let userTalked = false;
+let userMessageCount = 0;
+let bookingSuccessful = false;
+
+// Only check messages and booking success if the call has ended
+if (callStatus === "ended" && messages && messages.length > 0) {
+  // Count user messages
+  const userMessages = messages.filter(msg => msg.role === "user");
+  userMessageCount = userMessages.length;
+  userTalked = userMessageCount > 0;
+  
+  // Check for successful bookCalendlyTime calls
+  const toolCallResults = messages.filter(msg => 
+    msg.role === "tool_call_result" && 
+    msg.name === "bookCalendlyTime" && 
+    msg.result && 
+    typeof msg.result === "object" && 
+    msg.result.success === true
+  );
+  
+  bookingSuccessful = toolCallResults.length > 0;
 }
 
 // Format the date for the log entry
@@ -225,7 +254,10 @@ return {
     callCount: callCount,
     lastCallId: callId,
     lastCallDate: callCreatedAt,
-    recordingUrl: recordingUrl
+    recordingUrl: recordingUrl,
+    userTalked: userTalked,
+    userMessageCount: userMessageCount,
+    bookingSuccessful: bookingSuccessful
   }
 };
 ``` 
