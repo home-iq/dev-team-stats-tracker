@@ -58,6 +58,10 @@ The function returns a JSON object with these fields:
 - `phone`: Customer's phone number (for row matching)
 - `callStatus`: Raw status from VAPI (e.g., "queued", "ended")
 - `callStatusMessage`: User-friendly status message (e.g., "In Progress...", "Call Completed")
+- `slackStatusMessage`: Slack-formatted status message with markdown for bold, italics, and links
+  - For completed calls: `*Call Completed with [Name] ([Phone])*` followed by bulleted list with duration and recording link
+  - For queued calls: `_*In Progress...*_ (Call with [Name] ([Phone]) just started)`
+  - For other statuses: `*[Status]* - [Name] ([Phone])`
 - `callLog`: The updated call log with the new entry at the top
 - `closeId`: The Close CRM ID (preserved from input)
 - `callCount`: The updated call count
@@ -108,7 +112,24 @@ const formattedDate = callDate.toISOString().replace('T', ' ').substring(0, 19);
 // Create the new log entry based on call status
 let newLogEntry = "";
 let callStatusMessage = "";
+let slackStatusMessage = ""; // New variable for Slack-formatted message
 let recordingUrl = "";
+
+// Get first and last name for Slack messages
+let firstName = "";
+let lastName = "";
+let contactPhone = "";
+try {
+  firstName = $('Code').first().json['First Name'] || "";
+  lastName = $('Code').first().json['Last Name'] || "";
+  contactPhone = $('Code').first().json.Phone || customerPhone || "";
+} catch (error) {
+  console.log("Could not access name from previous node");
+}
+
+// Create a formatted name for Slack messages
+const formattedName = firstName || lastName ? `${firstName} ${lastName}`.trim() : "Unknown contact";
+const contactName = contactPhone ? `${formattedName} (${contactPhone})` : formattedName;
 
 if (callStatus === "ended") {
   // Get the recording URL for ended calls
@@ -135,13 +156,22 @@ if (callStatus === "ended") {
   // Create a detailed log entry with indented details
   newLogEntry = `:: Ended call: ${callId}\n  :: Date: ${formattedDate}\n  :: Duration: ${durationText}\n  :: Recording: ${recordingLink}`;
   callStatusMessage = "Call Completed";
+  
+  // Create Slack-formatted message with proper link syntax and contact name
+  const slackRecordingLink = recordingUrl !== "No recording available"
+    ? `<${recordingUrl}|Click to Listen>`
+    : "No recording available";
+  slackStatusMessage = `*Call Completed with ${contactName}*\n  • Duration: ${durationText}\n  • Recording: ${slackRecordingLink}`;
+  
 } else if (callStatus === "queued") {
   newLogEntry = `:: Started call: ${callId}\n  :: Date: ${formattedDate}`;
   callStatusMessage = "In Progress...";
+  slackStatusMessage = `_*In Progress...*_ (Call with ${contactName} just started)`;
 } else {
   // Handle any other status
   newLogEntry = `:: ${callStatus.charAt(0).toUpperCase() + callStatus.slice(1)} call: ${callId}\n  :: Date: ${formattedDate}`;
   callStatusMessage = callStatus.charAt(0).toUpperCase() + callStatus.slice(1);
+  slackStatusMessage = `*${callStatus.charAt(0).toUpperCase() + callStatus.slice(1)}* - ${contactName}`;
 }
 
 // Get the existing call log from the previous Code node
@@ -189,6 +219,7 @@ return {
     phone: customerPhone,
     callStatus: callStatus,
     callStatusMessage: callStatusMessage,
+    slackStatusMessage: slackStatusMessage,
     callLog: updatedCallLog,
     closeId: closeId,
     callCount: callCount,
