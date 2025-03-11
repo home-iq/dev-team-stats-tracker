@@ -25,19 +25,22 @@ The function creates structured call log entries based on the call status:
 
 ### For New Calls (status: "queued")
 ```
-:: Started call: [call_id] (timestamp)
+:: Started call: [call_id]
+  :: Date: [timestamp]
 ```
 
 ### For Completed Calls (status: "ended")
 ```
-:: Ended call: [call_id] (timestamp)
+:: Ended call: [call_id]
+  :: Date: [timestamp]
   :: Duration: [minutes]m [seconds]s
-  :: Listen: [recording_url]
+  :: Recording: [recording_url]
 ```
 
 ### For Other Statuses
 ```
-:: [Capitalized_status] call: [call_id] (timestamp)
+:: [Capitalized_status] call: [call_id]
+  :: Date: [timestamp]
 ```
 
 ## Call Count Handling
@@ -124,15 +127,20 @@ if (callStatus === "ended") {
     durationText = `${minutes}m ${seconds}s`;
   }
   
+  // Format the recording URL as a clickable link
+  const recordingLink = recordingUrl !== "No recording available" 
+    ? recordingUrl 
+    : "No recording available";
+  
   // Create a detailed log entry with indented details
-  newLogEntry = `:: Ended call: ${callId} (${formattedDate})\n  :: Duration: ${durationText}\n  :: Listen: ${recordingUrl}`;
+  newLogEntry = `:: Ended call: ${callId}\n  :: Date: ${formattedDate}\n  :: Duration: ${durationText}\n  :: Recording: ${recordingLink}`;
   callStatusMessage = "Call Completed";
 } else if (callStatus === "queued") {
-  newLogEntry = `:: Started call: ${callId} (${formattedDate})`;
+  newLogEntry = `:: Started call: ${callId}\n  :: Date: ${formattedDate}`;
   callStatusMessage = "In Progress...";
 } else {
   // Handle any other status
-  newLogEntry = `:: ${callStatus.charAt(0).toUpperCase() + callStatus.slice(1)} call: ${callId} (${formattedDate})`;
+  newLogEntry = `:: ${callStatus.charAt(0).toUpperCase() + callStatus.slice(1)} call: ${callId}\n  :: Date: ${formattedDate}`;
   callStatusMessage = callStatus.charAt(0).toUpperCase() + callStatus.slice(1);
 }
 
