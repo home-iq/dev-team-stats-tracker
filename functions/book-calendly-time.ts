@@ -16,6 +16,7 @@ interface BookingRequest {
   first_name: string;
   last_name: string;
   email: string;
+  calendar_url: string;
 }
 
 // Types for request body
@@ -53,7 +54,14 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
   try {
     // Construct the Calendly URL with prefilled values
     const name = `${booking.first_name} ${booking.last_name}`;
-    const calendlyUrl = `https://calendly.com/jon-myhomeiq/30min/${booking.start_time}?name=${encodeURIComponent(name)}&email=${encodeURIComponent(booking.email)}`;
+    
+    // Ensure the calendar_url ends with a slash before appending parameters
+    let baseUrl = booking.calendar_url;
+    if (!baseUrl.endsWith('/')) {
+      baseUrl += '/';
+    }
+    
+    const calendlyUrl = `${baseUrl}${booking.start_time}?name=${encodeURIComponent(name)}&email=${encodeURIComponent(booking.email)}`;
 
     // Make request to browserless to perform the booking
     const response = await fetch(`https://myhomeiq-browserless.smallmighty.co/function?token=${env.BROWSERLESS_TOKEN}`, {
@@ -260,14 +268,15 @@ const worker = {
         start_time: booking.start_time || false,
         first_name: booking.first_name || false,
         last_name: booking.last_name || false,
-        email: booking.email || false
+        email: booking.email || false,
+        calendar_url: booking.calendar_url || false
       });
 
       // Validate required fields
-      if (!booking.start_time || !booking.first_name || !booking.last_name || !booking.email) {
+      if (!booking.start_time || !booking.first_name || !booking.last_name || !booking.email || !booking.calendar_url) {
         return new Response(
           JSON.stringify({
-            error: { message: 'start_time, first_name, last_name, and email are required' }
+            error: { message: 'start_time, first_name, last_name, email, and calendar_url are required' }
           }),
           {
             status: 400,
