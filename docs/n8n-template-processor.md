@@ -25,7 +25,7 @@ if (greetingMatch && greetingMatch[1]) {
 const nowUtc = new Date().toISOString();
 
 // Format phone number gracefully
-let phone = $('Webhook').item.json.body.phone || "";
+let phone = $('Code').first().json.Phone || "";
 
 // Convert to string if it's not already
 phone = phone.toString();
@@ -47,11 +47,12 @@ if (phone.length === 10) {
 
 // Define the variable values using actual values from n8n nodes
 const variableValues = {
-  "first_name": $('Webhook').item.json.body.first_name,
-  "last_name": $('Webhook').item.json.body.last_name,
-  "email": $('Webhook').item.json.body.email,
+  "first_name": $('Code').first().json['First Name'],
+  "last_name": $('Code').first().json['Last Name'],
+  "email": $('Code').first().json.Email,
   "phone": phone,
-  "available_times": $('HTTP Request').item.json.data.startTimes,
+  "available_times": $('Get Calendly Times').first().json.data.startTimes,
+  "calendar_url": $('Code').first().json.calendar_url,
   "now": nowUtc
 };
 
@@ -111,14 +112,14 @@ The code standardizes phone numbers to the international format `+1XXXXXXXXXX` b
 
 ### 3. Template Variable Replacement
 Replaces variables in the format `{{variable_name}}` with their corresponding values from:
-- Webhook data (first_name, last_name, email, phone)
-- HTTP Request data (available_times)
+- 'Code' node data (First Name, Last Name, Email, Phone, calendar_url)
+- 'Get Calendly Times' node data (available_times)
 - Current UTC time
 
 ## Input Requirements
 - `$input.first().json.content`: The template content with variables in `{{variable_name}}` format
-- `$('Webhook').item.json.body`: Contains user data (first_name, last_name, email, phone)
-- `$('HTTP Request').item.json.data.startTimes`: Available appointment times
+- `$('Code').first().json`: Contains user data (First Name, Last Name, Email, Phone, calendar_url)
+- `$('Get Calendly Times').first().json.data.startTimes`: Available appointment times
 
 ## Output
 The node outputs a JSON object containing:
@@ -132,9 +133,10 @@ The node outputs a JSON object containing:
 
 ## Usage in Workflow
 This code node is designed to work in a workflow that:
-1. Receives form submissions from the Test SDR form
-2. Processes the template content for an AI assistant
-3. Sends the processed content to an AI service via HTTP request
+1. Receives contact data from the 'Code' node
+2. Gets available appointment times from the 'Get Calendly Times' node
+3. Processes the template content for an AI assistant
+4. Sends the processed content to an AI service via HTTP request
 
 ## Example
 ### Input Content
@@ -146,13 +148,14 @@ The lead's first name is: {{first_name}}
 The lead's last name is: {{last_name}}
 The lead's email is: {{email}}
 Currently the time in UTC is {{now}}.
+You can book a meeting at: {{calendar_url}}
 ```
 
 ### Output
 ```json
 {
-  "processedContent": "You are Emma, an AI-powered Sales Development Representative (SDR) for myhomeIQ.\nThe lead's first name is: John\nThe lead's last name is: Doe\nThe lead's email is: john.doe@example.com\nCurrently the time in UTC is 2023-06-15T14:30:45.123Z.",
-  "processedContentJSON": "\"You are Emma, an AI-powered Sales Development Representative (SDR) for myhomeIQ.\\nThe lead's first name is: John\\nThe lead's last name is: Doe\\nThe lead's email is: john.doe@example.com\\nCurrently the time in UTC is 2023-06-15T14:30:45.123Z.\"",
+  "processedContent": "You are Emma, an AI-powered Sales Development Representative (SDR) for myhomeIQ.\nThe lead's first name is: John\nThe lead's last name is: Doe\nThe lead's email is: john.doe@example.com\nCurrently the time in UTC is 2023-06-15T14:30:45.123Z.\nYou can book a meeting at: https://calendly.com/myhomeiq/demo",
+  "processedContentJSON": "\"You are Emma, an AI-powered Sales Development Representative (SDR) for myhomeIQ.\\nThe lead's first name is: John\\nThe lead's last name is: Doe\\nThe lead's email is: john.doe@example.com\\nCurrently the time in UTC is 2023-06-15T14:30:45.123Z.\\nYou can book a meeting at: https://calendly.com/myhomeiq/demo\"",
   "greeting": "Hey there John, this is Emma from myhomeIQ!",
   "greetingJSON": "\"Hey there John, this is Emma from myhomeIQ!\"",
   "formattedPhone": "+19167927365",
@@ -175,7 +178,7 @@ When using this node's output in an HTTP request to an AI service, use the JSON-
   },
   "customer": {
     "number": {{$json.formattedPhone}},
-    "name": "{{$('Webhook').item.json.body.first_name}}"
+    "name": "{{$('Code').first().json['First Name']}}"
   },
   "phoneNumberId": "9a43e40d-65f4-482e-8196-a1a3812f0004"
 }
