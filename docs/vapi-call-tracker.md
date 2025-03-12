@@ -37,7 +37,9 @@ The function creates structured call log entries based on the call status:
   :: Date: [timestamp]
   :: Duration: [minutes]m [seconds]s
   :: Recording: [recording_url]
+  :: Booked with [Salesperson Name]: [Day], [Month] [Date] @ [Time] [Timezone]
 ```
+The last line with booking information is only included if a booking was made during the call.
 
 ### For Other Statuses
 ```
@@ -51,14 +53,17 @@ The function creates structured call log entries based on the call status:
 
 ## Booking Information Handling
 - When a call includes a successful booking via the `bookCalendlyTime` function, the script extracts:
+  - Salesperson name (from the Calendly content)
   - Day of week (abbreviated)
   - Date (month and day)
-  - Time
+  - Time (in 12-hour format)
   - Timezone (abbreviated)
-- This information is formatted as: "Tue, March 11 @ 3:30 PM PT"
+- This information is formatted as: "Booked with Jon Shumate: Wed, March 12 @ 9:30 AM PT"
 - The formatted booking information is:
-  - Added to the `callStatusMessage` and `slackStatusMessage`
+  - Added as an indented item in the call log
+  - Added to the `slackStatusMessage` as a bullet point
   - Stored in the `bookingSuccessful` field for use in Google Sheets
+  - NOT added to the `callStatusMessage` (which remains simply "Call Completed")
 
 ## Integration with Google Sheets
 The function is designed to work with a Google Sheets node in n8n:
@@ -72,7 +77,7 @@ The function returns a JSON object with these fields:
 - `callStatus`: Raw status from VAPI (e.g., "queued", "ended")
 - `callStatusMessage`: User-friendly status message (e.g., "In Progress...", "Call Completed")
 - `slackStatusMessage`: Slack-formatted status message with markdown for bold, italics, and links
-  - For completed calls: `*Call Completed with [Name] ([Phone])*` followed by bulleted list with duration and recording link
+  - For completed calls: `*Call Completed with [Name] ([Phone])*` followed by bulleted list with duration, recording link, and booking info (if available)
   - For queued calls: `_*In Progress...*_ (Call with [Name] ([Phone]) just started)`
   - For other statuses: `*[Status]* - [Name] ([Phone])`
 - `callLog`: The updated call log with the new entry at the top
@@ -97,12 +102,20 @@ This function is designed to be used in an n8n workflow with:
 [Google Sheets: Read] → [HTTP Request to VAPI] → [This Function] → [Google Sheets: Update]
 ```
 
+## Google Sheets Expression for Booking Column
+When setting up the Google Sheets node to update the "Booked" column, use this expression:
+```
+{{ $json.bookingSuccessful === false ? "" : $json.bookingSuccessful }}
+```
+This ensures that when no booking was made (`bookingSuccessful` is `false`), the cell will be empty rather than displaying "false".
+
 ## Maintenance
 When maintaining this code, consider:
 - Updating the log format if additional call information becomes available
 - Adding error handling for missing or malformed VAPI responses
 - Extending the status handling for any new VAPI call statuses
 - Updating the booking information extraction if the Calendly response format changes
+- Adjusting the salesperson name detection logic if the Calendly content format changes
 
 ## Complete Code
 ```javascript
@@ -128,10 +141,29 @@ function extractBookingInfo(messages) {
   const lines = content.split('\n');
   let meetingInfoLine = '';
   let timezoneLine = '';
+  let salespersonName = 'Jon Shumate'; // Default salesperson name
   
+  // Try to find the salesperson name in the content
   for (let i = 0; i < lines.length; i++) {
-    if (lines[i].includes(':') && lines[i].includes(',') && 
-        (lines[i].includes('AM') || lines[i].includes('PM'))) {
+    // Look for a line that might contain the salesperson name
+    if (i < lines.length - 1 && 
+        lines[i].trim() !== '' && 
+        !lines[i].includes(':') && 
+        !lines[i].includes('Invitation') && 
+        !lines[i].includes('Meeting') &&
+        !lines[i].includes('scheduled') &&
+        !lines[i].includes('invitation') &&
+        !lines[i].includes('Calendly')) {
+      // This might be the salesperson name
+      const potentialName = lines[i].trim();
+      if (potentialName.split(' ').length <= 3) { // Most names are 1-3 words
+        salespersonName = potentialName;
+      }
+    }
+    
+    // Look for the meeting info line with time and date
+    if ((lines[i].includes(':') && lines[i].includes(',')) && 
+        (lines[i].includes('AM') || lines[i].includes('PM') || lines[i].includes(' - '))) {
       meetingInfoLine = lines[i].trim();
       // Timezone is typically on the next line
       if (i + 1 < lines.length) {
@@ -144,13 +176,13 @@ function extractBookingInfo(messages) {
   if (!meetingInfoLine) return null;
   
   // Parse the meeting info
-  // Format is typically: "15:30 - 16:00, Tuesday, March 11, 2025"
+  // Format is typically: "09:30 - 10:00, Wednesday, March 12, 2025"
   const parts = meetingInfoLine.split(',').map(p => p.trim());
   const timeRange = parts[0];
-  const dayOfWeek = parts[1]; // "Tuesday"
-  const date = parts[2]; // "March 11, 2025" or "March 11"
+  const dayOfWeek = parts[1]; // "Wednesday"
+  const date = parts[2]; // "March 12, 2025" or "March 12"
   
-  // Extract just the start time from the time range (15:30 - 16:00)
+  // Extract just the start time from the time range (09:30 - 10:00)
   const startTime = timeRange.split(' - ')[0];
   
   // Convert to 12-hour format if needed
@@ -162,10 +194,10 @@ function extractBookingInfo(messages) {
     formattedTime = `${hour12}:${minutes.toString().padStart(2, '0')} ${period}`;
   }
   
-  // Get abbreviated day of week (Tue from Tuesday)
+  // Get abbreviated day of week (Wed from Wednesday)
   const dayAbbrev = dayOfWeek.substring(0, 3);
   
-  // Parse date to get just "March 11" without the year
+  // Parse date to get just "March 12" without the year
   let monthDay = date;
   if (date.includes(',')) {
     monthDay = date.split(',')[0].trim();
@@ -187,8 +219,8 @@ function extractBookingInfo(messages) {
     timezoneAbbrev = 'HT';
   }
   
-  // Format the human-readable string in the requested format
-  const formattedBooking = `${dayAbbrev}, ${monthDay} @ ${formattedTime} ${timezoneAbbrev}`;
+  // Format the human-readable string in the requested format with salesperson name
+  const formattedBooking = `Booked with ${salespersonName}: ${dayAbbrev}, ${monthDay} @ ${formattedTime} ${timezoneAbbrev}`;
   
   return {
     formattedString: formattedBooking,
@@ -281,6 +313,13 @@ if (callStatus === "ended") {
   
   // Create a detailed log entry with indented details
   newLogEntry = `:: Ended call: ${callId}\n  :: Date: ${formattedDate}\n  :: Duration: ${durationText}\n  :: Recording: ${recordingLink}`;
+  
+  // Add booking information to the call log if available
+  if (bookingSuccessful) {
+    newLogEntry += `\n  :: ${bookingSuccessful}`;
+  }
+  
+  // Keep callStatusMessage simple
   callStatusMessage = "Call Completed";
   
   // Create Slack-formatted message with proper link syntax and contact name
@@ -289,10 +328,9 @@ if (callStatus === "ended") {
     : "No recording available";
   slackStatusMessage = `*Call Completed with ${contactName}*\n  • Duration: ${durationText}\n  • Recording: ${slackRecordingLink}`;
   
-  // Add booking information if available
+  // Add booking information to Slack message if available
   if (bookingSuccessful) {
-    callStatusMessage += `\n${bookingSuccessful}`;
-    slackStatusMessage += `\n  • Booked: ${bookingSuccessful}`;
+    slackStatusMessage += `\n  • ${bookingSuccessful}`;
   }
   
 } else if (callStatus === "queued") {
