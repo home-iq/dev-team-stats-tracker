@@ -80,7 +80,7 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
           try {
             // Navigate to page and wait 5 seconds for initial page load (up from 3.5)
             await page.goto('${calendlyUrl}');
-            await new Promise(resolve => setTimeout(resolve, 5000));
+            await new Promise(resolve => setTimeout(resolve, 4000));
 
             // Fill in all form fields and click button
             await page.evaluate(async (userData) => {
@@ -113,7 +113,7 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
                       element.dispatchEvent(new Event('blur', { bubbles: true }));
                       
                       // Resolve after completion
-                      setTimeout(resolve, 300);
+                      setTimeout(resolve, 200);
                     }, 200);
                   }, 200);
                 });
@@ -161,12 +161,9 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
                     phoneInput.dispatchEvent(new Event('blur', { bubbles: true }));
                     
                     // Wait after setting value
-                    await new Promise(resolve => setTimeout(resolve, 300));
+                    await new Promise(resolve => setTimeout(resolve, 200));
                   }
                 }
-
-                // Wait a final delay before clicking the button
-                await new Promise(resolve => setTimeout(resolve, 500));
                 
                 // Find and click the button
                 const buttons = Array.from(document.querySelectorAll('button'));
