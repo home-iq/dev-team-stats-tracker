@@ -62,8 +62,8 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
       baseUrl += '/';
     }
     
-    // Include name and email as URL parameters for prefilling
-    const calendlyUrl = `${baseUrl}${booking.start_time}?name=${encodeURIComponent(name)}&email=${encodeURIComponent(booking.email)}`;
+    // Remove URL parameters for testing JavaScript field handling
+    const calendlyUrl = `${baseUrl}${booking.start_time}`;
 
     // Make request to browserless to perform the booking
     const response = await fetch(`https://myhomeiq-browserless.smallmighty.co/function?token=${env.BROWSERLESS_TOKEN}`, {
@@ -78,12 +78,12 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
           await page.setDefaultNavigationTimeout(15000);
           
           try {
-            // Navigate to page and wait 3.5 seconds
+            // Navigate to page and wait 5 seconds for initial page load (up from 3.5)
             await page.goto('${calendlyUrl}');
-            await new Promise(resolve => setTimeout(resolve, 3500));
+            await new Promise(resolve => setTimeout(resolve, 5000));
 
             // Fill in all form fields and click button
-            await page.evaluate((userData) => {
+            await page.evaluate(async (userData) => {
               // Get the form fields
               const fullNameInput = document.querySelector('input[name="full_name"]');
               const firstNameInput = document.querySelector('input[name="first_name"]');
@@ -91,51 +91,102 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
               const emailInput = document.querySelector('input[name="email"]');
               const phoneInputs = Array.from(document.querySelectorAll('input[type="tel"]'));
               
-              // Handle name fields - either full name or first/last name fields
-              if (fullNameInput) {
-                // Single full name field
-                fullNameInput.value = userData.name;
-                fullNameInput.dispatchEvent(new Event('input', { bubbles: true }));
-              } else if (firstNameInput && lastNameInput) {
-                // Separate first and last name fields
-                firstNameInput.value = userData.firstName;
-                firstNameInput.dispatchEvent(new Event('input', { bubbles: true }));
+              // Helper function to fill text inputs (name, email)
+              function fillTextInput(element, value) {
+                // Focus the field
+                element.focus();
+                element.click();
                 
-                lastNameInput.value = userData.lastName;
-                lastNameInput.dispatchEvent(new Event('input', { bubbles: true }));
+                // Small delay after focus
+                return new Promise(resolve => {
+                  setTimeout(() => {
+                    // Select and delete existing content
+                    element.select();
+                    document.execCommand('delete');
+                    
+                    // Small delay after clearing
+                    setTimeout(() => {
+                      // Insert text and trigger events
+                      document.execCommand('insertText', false, value);
+                      element.dispatchEvent(new Event('input', { bubbles: true }));
+                      element.dispatchEvent(new Event('change', { bubbles: true }));
+                      element.dispatchEvent(new Event('blur', { bubbles: true }));
+                      
+                      // Resolve after completion
+                      setTimeout(resolve, 300);
+                    }, 200);
+                  }, 200);
+                });
               }
               
-              // Fill in email field
-              if (emailInput) {
-                emailInput.value = userData.email;
-                emailInput.dispatchEvent(new Event('input', { bubbles: true }));
-              }
-
-              // Fill in phone fields if they exist
-              if (phoneInputs.length > 0) {
-                // Fill the first (required) phone field
-                phoneInputs[0].value = userData.phone;
-                phoneInputs[0].dispatchEvent(new Event('input', { bubbles: true }));
-                
-                // If there's a second phone field (for SMS), fill that too
-                if (phoneInputs.length > 1) {
-                  phoneInputs[1].value = userData.phone;
-                  phoneInputs[1].dispatchEvent(new Event('input', { bubbles: true }));
+              // Async function to fill all fields with proper delays
+              async function fillAllFields() {
+                // Handle name fields - either full name or first/last name fields
+                if (fullNameInput) {
+                  // Single full name field
+                  await fillTextInput(fullNameInput, userData.name);
+                } else if (firstNameInput && lastNameInput) {
+                  // Separate first and last name fields
+                  await fillTextInput(firstNameInput, userData.firstName);
+                  await fillTextInput(lastNameInput, userData.lastName);
                 }
-              }
+                
+                // Fill in email field
+                if (emailInput) {
+                  await fillTextInput(emailInput, userData.email);
+                }
 
-              // Find and click the button
-              const buttons = Array.from(document.querySelectorAll('button'));
-              const scheduleButton = buttons.find(button => button.textContent.trim() === 'Schedule Event');
-              if (scheduleButton) scheduleButton.click();
+                // Fill in phone fields if they exist
+                if (phoneInputs.length > 0) {
+                  // Process each phone field
+                  for (const phoneInput of phoneInputs) {
+                    // Focus and click the field
+                    phoneInput.focus();
+                    phoneInput.click();
+                    
+                    // Wait after focus
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                    
+                    // Select and delete existing content
+                    phoneInput.select();
+                    document.execCommand('delete');
+                    
+                    // Wait after clearing
+                    await new Promise(resolve => setTimeout(resolve, 200));
+                    
+                    // Insert the phone number and trigger events
+                    document.execCommand('insertText', false, userData.phone);
+                    phoneInput.dispatchEvent(new Event('input', { bubbles: true }));
+                    phoneInput.dispatchEvent(new Event('change', { bubbles: true }));
+                    phoneInput.dispatchEvent(new Event('blur', { bubbles: true }));
+                    
+                    // Wait after setting value
+                    await new Promise(resolve => setTimeout(resolve, 300));
+                  }
+                }
+
+                // Wait a final delay before clicking the button
+                await new Promise(resolve => setTimeout(resolve, 500));
+                
+                // Find and click the button
+                const buttons = Array.from(document.querySelectorAll('button'));
+                const scheduleButton = buttons.find(button => button.textContent.trim() === 'Schedule Event');
+                if (scheduleButton) scheduleButton.click();
+              }
+              
+              // Run the async function and wait for it to complete
+              await fillAllFields();
+              return true; // Signal completion
             }, {
               name: '${booking.first_name} ${booking.last_name}',
               firstName: '${booking.first_name}',
               lastName: '${booking.last_name}',
               email: '${booking.email}',
-              phone: '${booking.phone || ""}'
+              phone: '${booking.phone}'
             });
-            await new Promise(resolve => setTimeout(resolve, 2500));
+
+            // Wait 4 seconds after clicking submit button (up from 2.5)
+            await new Promise(resolve => setTimeout(resolve, 4000));
 
             // Check if URL changed and get page content
             const currentUrl = await page.url();
