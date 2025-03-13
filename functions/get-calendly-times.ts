@@ -33,12 +33,12 @@ async function getCalendlyTimes(eventTypeId: string, calendlyToken: string): Pro
   // Calculate timestamps
   const now = new Date();
   const fifteenMinutesFromNow = new Date(now.getTime() + 15 * 60 * 1000).toISOString();
-  const sixDaysLater = new Date(now.getTime() + 6 * 24 * 60 * 60 * 1000).toISOString();
+  const sevenDaysLater = new Date(now.getTime() + 7 * 24 * 60 * 60 * 1000).toISOString();
 
   // Array to collect all available time objects
   const availableTimes: EnrichedAvailableTime[] = [];
 
-  const url = `https://api.calendly.com/event_type_available_times?event_type=${encodeURIComponent(eventTypeId)}&start_time=${encodeURIComponent(fifteenMinutesFromNow)}&end_time=${encodeURIComponent(sixDaysLater)}`;
+  const url = `https://api.calendly.com/event_type_available_times?event_type=${encodeURIComponent(eventTypeId)}&start_time=${encodeURIComponent(fifteenMinutesFromNow)}&end_time=${encodeURIComponent(sevenDaysLater)}`;
   
   try {
     console.log('Using provided Calendly token');
