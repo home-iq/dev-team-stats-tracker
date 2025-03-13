@@ -52,7 +52,7 @@ const variableValues = {
   "email": $('Code').first().json.Email,
   "phone": phone,
   "available_times": $('Get Calendly Times').first().json.data.startTimes,
-  "calendar_url": $('Code').first().json.calendar_url,
+  "calendar_web_url": $('Code').first().json.calendar_web_url,
   "now": nowUtc
 };
 
@@ -112,13 +112,13 @@ The code standardizes phone numbers to the international format `+1XXXXXXXXXX` b
 
 ### 3. Template Variable Replacement
 Replaces variables in the format `{{variable_name}}` with their corresponding values from:
-- 'Code' node data (First Name, Last Name, Email, Phone, calendar_url)
+- 'Code' node data (First Name, Last Name, Email, Phone, calendar_web_url)
 - 'Get Calendly Times' node data (available_times)
 - Current UTC time
 
 ## Input Requirements
 - `$input.first().json.content`: The template content with variables in `{{variable_name}}` format
-- `$('Code').first().json`: Contains user data (First Name, Last Name, Email, Phone, calendar_url)
+- `$('Code').first().json`: Contains user data (First Name, Last Name, Email, Phone, calendar_web_url)
 - `$('Get Calendly Times').first().json.data.startTimes`: Available appointment times
 
 ## Output
@@ -148,7 +148,7 @@ The lead's first name is: {{first_name}}
 The lead's last name is: {{last_name}}
 The lead's email is: {{email}}
 Currently the time in UTC is {{now}}.
-You can book a meeting at: {{calendar_url}}
+You can book a meeting at: {{calendar_web_url}}
 ```
 
 ### Output
