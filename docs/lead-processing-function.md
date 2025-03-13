@@ -28,7 +28,7 @@ const salespersons = [
   { 
     name: "Jon Shumate", 
     calendar_url: "https://api.calendly.com/event_types/c4fe39b5-c6bb-41fa-a035-1d3c79de3c7e",
-    calendar_web_url: "https://calendly.com/jon-myhomeiq/30minv"
+    calendar_web_url: "https://calendly.com/jon-myhomeiq/30min"
   },
   // Add more salespersons as needed
 ];
@@ -115,7 +115,7 @@ const salespersons = [
   { 
     name: "Jon Shumate", 
     calendar_url: "https://api.calendly.com/event_types/c4fe39b5-c6bb-41fa-a035-1d3c79de3c7e",
-    calendar_web_url: "https://calendly.com/jon-myhomeiq/30minv"
+    calendar_web_url: "https://calendly.com/jon-myhomeiq/30min"
   },
   // Add more salespersons as needed
 ];
