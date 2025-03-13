@@ -16,7 +16,7 @@ interface BookingRequest {
   first_name: string;
   last_name: string;
   email: string;
-  calendar_url: string;
+  calendar_web_url: string;
 }
 
 // Types for request body
@@ -55,8 +55,8 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
     // Construct the Calendly URL with prefilled values
     const name = `${booking.first_name} ${booking.last_name}`;
     
-    // Ensure the calendar_url ends with a slash before appending parameters
-    let baseUrl = booking.calendar_url;
+    // Ensure the calendar_web_url ends with a slash before appending parameters
+    let baseUrl = booking.calendar_web_url;
     if (!baseUrl.endsWith('/')) {
       baseUrl += '/';
     }
@@ -269,14 +269,14 @@ const worker = {
         first_name: booking.first_name || false,
         last_name: booking.last_name || false,
         email: booking.email || false,
-        calendar_url: booking.calendar_url || false
+        calendar_web_url: booking.calendar_web_url || false
       });
 
       // Validate required fields
-      if (!booking.start_time || !booking.first_name || !booking.last_name || !booking.email || !booking.calendar_url) {
+      if (!booking.start_time || !booking.first_name || !booking.last_name || !booking.email || !booking.calendar_web_url) {
         return new Response(
           JSON.stringify({
-            error: { message: 'start_time, first_name, last_name, email, and calendar_url are required' }
+            error: { message: 'start_time, first_name, last_name, email, and calendar_web_url are required' }
           }),
           {
             status: 400,
