@@ -20,16 +20,25 @@ The function includes a configuration section at the top where salesperson infor
 ```javascript
 // Configuration: Array of salespersons with their calendar URLs
 const salespersons = [
-  { name: "Tawd Frensley", calendar_url: "https://api.calendly.com/event_types/EFHTV7GOKIPFHJDH" },
-  { name: "Jon Shumate", calendar_url: "https://api.calendly.com/event_types/c4fe39b5-c6bb-41fa-a035-1d3c79de3c7e" },
+  { 
+    name: "Tawd Frensley", 
+    calendar_url: "https://api.calendly.com/event_types/EFHTV7GOKIPFHJDH",
+    calendar_web_url: "https://calendly.com/tawdfrensley/30"
+  },
+  { 
+    name: "Jon Shumate", 
+    calendar_url: "https://api.calendly.com/event_types/c4fe39b5-c6bb-41fa-a035-1d3c79de3c7e",
+    calendar_web_url: "https://calendly.com/jon-myhomeiq/30minv"
+  },
   // Add more salespersons as needed
 ];
 
-// Backup URL to use if no matching salesperson is found
+// Backup URLs to use if no matching salesperson is found
 const backupCalendarUrl = "https://api.calendly.com/event_types/78a2485f-6e9c-44fa-9b05-33c3e61948bd";
+const backupCalendarWebUrl = "https://calendly.com/d/cqs4-2yf-wdt/myhomeiq-product-demo";
 ```
 
-To add or modify salespersons, simply update the array with the correct name (exactly as it appears in the Google Sheet) and their Calendly event type URL.
+To add or modify salespersons, simply update the array with the correct name (exactly as it appears in the Google Sheet), their Calendly API event type URL, and their public-facing Calendly web URL.
 
 ## Lead Eligibility Criteria
 
@@ -98,13 +107,22 @@ If no eligible lead is found, the function will return an empty array.
 ```javascript
 // Configuration: Array of salespersons with their calendar URLs
 const salespersons = [
-  { name: "Tawd Frensley", calendar_url: "https://api.calendly.com/event_types/EFHTV7GOKIPFHJDH" },
-  { name: "Jon Shumate", calendar_url: "https://api.calendly.com/event_types/c4fe39b5-c6bb-41fa-a035-1d3c79de3c7e" },
+  { 
+    name: "Tawd Frensley", 
+    calendar_url: "https://api.calendly.com/event_types/EFHTV7GOKIPFHJDH",
+    calendar_web_url: "https://calendly.com/tawdfrensley/30"
+  },
+  { 
+    name: "Jon Shumate", 
+    calendar_url: "https://api.calendly.com/event_types/c4fe39b5-c6bb-41fa-a035-1d3c79de3c7e",
+    calendar_web_url: "https://calendly.com/jon-myhomeiq/30minv"
+  },
   // Add more salespersons as needed
 ];
 
-// Backup URL to use if no matching salesperson is found
+// Backup URLs to use if no matching salesperson is found
 const backupCalendarUrl = "https://api.calendly.com/event_types/78a2485f-6e9c-44fa-9b05-33c3e61948bd";
+const backupCalendarWebUrl = "https://calendly.com/d/cqs4-2yf-wdt/myhomeiq-product-demo";
 
 // Get current date and date from 24 hours ago for comparison
 const now = new Date();
@@ -165,16 +183,18 @@ for (const item of items) {
   }
 }
 
-// If we found a valid item, add the calendar URL
+// If we found a valid item, add the calendar URLs
 if (validItem) {
   const salespersonName = validItem.json.Salesperson;
   const matchedSalesperson = salespersons.find(sp => sp.name === salespersonName);
   
   if (matchedSalesperson) {
     validItem.json.calendar_url = matchedSalesperson.calendar_url;
+    validItem.json.calendar_web_url = matchedSalesperson.calendar_web_url;
   } else {
-    // If no match found, use the backup URL
+    // If no match found, use the backup URLs
     validItem.json.calendar_url = backupCalendarUrl;
+    validItem.json.calendar_web_url = backupCalendarWebUrl;
   }
   
   // Return only this single item
