@@ -17,6 +17,7 @@ interface BookingRequest {
   last_name: string;
   email: string;
   calendar_web_url: string;
+  phone: string;  // Add phone field
 }
 
 // Types for request body
@@ -52,7 +53,7 @@ interface BookingResult {
 // Main function to book Calendly time
 async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<BookingResult> {
   try {
-    // Construct the Calendly URL with prefilled values
+    // Construct the Calendly URL with prefilled values for name and email
     const name = `${booking.first_name} ${booking.last_name}`;
     
     // Ensure the calendar_web_url ends with a slash before appending parameters
@@ -61,6 +62,7 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
       baseUrl += '/';
     }
     
+    // Include name and email as URL parameters for prefilling
     const calendlyUrl = `${baseUrl}${booking.start_time}?name=${encodeURIComponent(name)}&email=${encodeURIComponent(booking.email)}`;
 
     // Make request to browserless to perform the booking
@@ -80,27 +82,58 @@ async function bookCalendlyTime(env: Env, booking: BookingRequest): Promise<Book
             await page.goto('${calendlyUrl}');
             await new Promise(resolve => setTimeout(resolve, 3500));
 
-            // Fill in form fields if empty and click button
-            await page.evaluate(() => {
-              const nameInput = document.querySelector('input[name="full_name"]');
+            // Fill in all form fields and click button
+            await page.evaluate((userData) => {
+              // Get the form fields
+              const fullNameInput = document.querySelector('input[name="full_name"]');
+              const firstNameInput = document.querySelector('input[name="first_name"]');
+              const lastNameInput = document.querySelector('input[name="last_name"]');
               const emailInput = document.querySelector('input[name="email"]');
-              const urlParams = new URLSearchParams(window.location.search);
+              const phoneInputs = Array.from(document.querySelectorAll('input[type="tel"]'));
               
-              // Fill fields if they're empty
-              if (nameInput && !nameInput.value) {
-                nameInput.value = urlParams.get('name') || '';
-                nameInput.dispatchEvent(new Event('input', { bubbles: true }));
+              // Handle name fields - either full name or first/last name fields
+              if (fullNameInput) {
+                // Single full name field
+                fullNameInput.value = userData.name;
+                fullNameInput.dispatchEvent(new Event('input', { bubbles: true }));
+              } else if (firstNameInput && lastNameInput) {
+                // Separate first and last name fields
+                firstNameInput.value = userData.firstName;
+                firstNameInput.dispatchEvent(new Event('input', { bubbles: true }));
+                
+                lastNameInput.value = userData.lastName;
+                lastNameInput.dispatchEvent(new Event('input', { bubbles: true }));
               }
               
-              if (emailInput && !emailInput.value) {
-                emailInput.value = urlParams.get('email') || '';
+              // Fill in email field
+              if (emailInput) {
+                emailInput.value = userData.email;
                 emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+              }
+
+              // Fill in phone fields if they exist
+              if (phoneInputs.length > 0) {
+                // Fill the first (required) phone field
+                phoneInputs[0].value = userData.phone;
+                phoneInputs[0].dispatchEvent(new Event('input', { bubbles: true }));
+                
+                // If there's a second phone field (for SMS), fill that too
+                if (phoneInputs.length > 1) {
+                  phoneInputs[1].value = userData.phone;
+                  phoneInputs[1].dispatchEvent(new Event('input', { bubbles: true }));
+                }
               }
 
               // Find and click the button
               const buttons = Array.from(document.querySelectorAll('button'));
               const scheduleButton = buttons.find(button => button.textContent.trim() === 'Schedule Event');
               if (scheduleButton) scheduleButton.click();
+            }, {
+              name: '${booking.first_name} ${booking.last_name}',
+              firstName: '${booking.first_name}',
+              lastName: '${booking.last_name}',
+              email: '${booking.email}',
+              phone: '${booking.phone || ""}'
             });
             await new Promise(resolve => setTimeout(resolve, 2500));
 
@@ -269,14 +302,15 @@ const worker = {
         first_name: booking.first_name || false,
         last_name: booking.last_name || false,
         email: booking.email || false,
-        calendar_web_url: booking.calendar_web_url || false
+        calendar_web_url: booking.calendar_web_url || false,
+        phone: booking.phone || false
       });
 
-      // Validate required fields
-      if (!booking.start_time || !booking.first_name || !booking.last_name || !booking.email || !booking.calendar_web_url) {
+      // Validate required fields (phone is always provided but may not be used if the form doesn't have phone fields)
+      if (!booking.start_time || !booking.first_name || !booking.last_name || !booking.email || !booking.calendar_web_url || !booking.phone) {
         return new Response(
           JSON.stringify({
-            error: { message: 'start_time, first_name, last_name, email, and calendar_web_url are required' }
+            error: { message: 'start_time, first_name, last_name, email, calendar_web_url, and phone are required' }
           }),
           {
             status: 400,
