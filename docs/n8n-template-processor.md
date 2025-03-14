@@ -45,13 +45,211 @@ if (phone.length === 10) {
   phone = '+1' + phone.slice(-10);
 }
 
+// Get available times from Calendly
+const rawAvailableTimes = $('Get Calendly Times').first().json.data.startTimes;
+
+// Function to format time in 12-hour format (e.g., "9:30am")
+function formatTimeIn12HourFormat(date) {
+  let hours = date.getHours();
+  const minutes = date.getMinutes();
+  const ampm = hours >= 12 ? 'pm' : 'am';
+  
+  hours = hours % 12;
+  hours = hours ? hours : 12; // Convert 0 to 12
+  
+  const formattedMinutes = minutes < 10 ? '0' + minutes : minutes;
+  return `${hours}:${formattedMinutes}${ampm}`;
+}
+
+// Function to format date as "Day, Month Day" (e.g., "Friday, March 15")
+function formatDate(date) {
+  const options = { weekday: 'long', month: 'long', day: 'numeric' };
+  return date.toLocaleDateString('en-US', options);
+}
+
+// Function to format date as just the day name (e.g., "Friday")
+function formatDayName(date) {
+  const options = { weekday: 'long' };
+  return date.toLocaleDateString('en-US', options);
+}
+
+// Function to check if a date is today, tomorrow, etc. in a specific timezone
+function getRelativeDayLabel(date, now, tzOffset) {
+  // Create date objects adjusted for timezone
+  const tzNow = new Date(now.getTime() + tzOffset * 60 * 60 * 1000);
+  const tzDate = new Date(date.getTime() + tzOffset * 60 * 60 * 1000);
+  
+  // Reset time to start of day for comparison
+  const tzNowDay = new Date(tzNow.getFullYear(), tzNow.getMonth(), tzNow.getDate());
+  const tzDateDay = new Date(tzDate.getFullYear(), tzDate.getMonth(), tzDate.getDate());
+  
+  // Calculate difference in days
+  const diffTime = tzDateDay.getTime() - tzNowDay.getTime();
+  const diffDays = diffTime / (1000 * 60 * 60 * 24);
+  
+  if (diffDays === 0) return `Today (${formatDayName(tzDate)}, ${tzDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })})`;
+  if (diffDays === 1) return `Tomorrow (${formatDayName(tzDate)}, ${tzDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })})`;
+  return formatDate(tzDate);
+}
+
+// Function to format a timestamp in ISO format with timezone offset
+function formatTimestampWithOffset(date, tzOffset) {
+  // Create a new date adjusted for the timezone
+  const localDate = new Date(date.getTime() + tzOffset * 60 * 60 * 1000);
+  
+  // Format the date in ISO format
+  const isoDate = localDate.toISOString().slice(0, 19);
+  
+  // Calculate the timezone offset string (e.g., "-07:00")
+  const offsetHours = Math.floor(Math.abs(tzOffset));
+  const offsetMinutes = Math.abs(tzOffset % 1) * 60;
+  const offsetSign = tzOffset < 0 ? '-' : '+';
+  const offsetString = `${offsetSign}${offsetHours.toString().padStart(2, '0')}:${offsetMinutes.toString().padStart(2, '0')}`;
+  
+  return `${isoDate}${offsetString}`;
+}
+
+// Function to organize times by day for a specific timezone
+function organizeTimesByDay(times, tzOffset, tzName) {
+  const now = new Date();
+  const result = {};
+  const utcTimes = [];
+  const timeMap = {};
+  
+  // Parse times and adjust for timezone
+  times.forEach(timeStr => {
+    const utcTime = new Date(timeStr);
+    utcTimes.push(utcTime);
+    
+    // Create a date object adjusted for the timezone
+    const localTime = new Date(utcTime.getTime() + tzOffset * 60 * 60 * 1000);
+    
+    // Get day label (Today, Tomorrow, or the date)
+    const dayLabel = getRelativeDayLabel(utcTime, now, tzOffset);
+    
+    // Format the time
+    const formattedTime = formatTimeIn12HourFormat(localTime);
+    
+    // Format the timestamp with timezone offset
+    const timestampWithOffset = formatTimestampWithOffset(utcTime, tzOffset);
+    
+    // Add to result
+    if (!result[dayLabel]) {
+      result[dayLabel] = [];
+      timeMap[dayLabel] = {};
+    }
+    
+    result[dayLabel].push({
+      formattedTime,
+      utcTime: timeStr, // Keep original UTC time for booking
+      timestampWithOffset // Add timestamp with timezone offset
+    });
+    
+    // Add to time map
+    timeMap[dayLabel][formattedTime] = {
+      utcTime: timeStr,
+      timestampWithOffset
+    };
+  });
+  
+  // Sort times within each day
+  Object.keys(result).forEach(day => {
+    result[day].sort((a, b) => {
+      return new Date(a.utcTime) - new Date(b.utcTime);
+    });
+  });
+  
+  // Create formatted output for this timezone
+  // Extract the timezone name for the header (e.g., "PACIFIC TIME" from "Pacific Daylight Time (PDT)")
+  const tzNameParts = tzName.split(' ');
+  const tzHeader = `${tzNameParts[0].toUpperCase()} TIME`;
+  
+  let output = `==== ${tzHeader} ====\n`;
+  output += `(use if user says their time zone is ${tzNameParts[0].substring(0, 1)}T, ${tzNameParts[0]} Time, `;
+  
+  // Add timezone abbreviations
+  if (tzName.includes('(')) {
+    const abbr = tzName.match(/\(([A-Z]+)\)/)[1];
+    const seasonName = tzName.includes('Daylight') ? 'Daylight' : 'Standard';
+    output += `${abbr}, ${tzNameParts[0]} ${seasonName} Time, `;
+    
+    // Add the alternative abbreviation
+    const altAbbr = abbr.replace('D', 'S');
+    const altSeasonName = seasonName === 'Daylight' ? 'Standard' : 'Daylight';
+    output += `or ${altAbbr.replace('S', 'D')}, ${tzNameParts[0]} ${altSeasonName} Time`;
+  }
+  
+  output += `)\n\n`;
+  
+  // Get days in order (Today, Tomorrow, then other days sorted by date)
+  const days = Object.keys(result).sort((a, b) => {
+    if (a.startsWith('Today')) return -1;
+    if (b.startsWith('Today')) return 1;
+    if (a.startsWith('Tomorrow')) return -1;
+    if (b.startsWith('Tomorrow')) return 1;
+    
+    // Compare dates for other days
+    const dateA = new Date(a);
+    const dateB = new Date(b);
+    return dateA - dateB;
+  });
+  
+  // Add each day's times to output
+  days.forEach(day => {
+    output += `- For ${day}, we have: \n`;
+    
+    // Add each time on its own line with the timestamp after a dash
+    result[day].forEach(t => {
+      output += `  ${t.formattedTime} - ${t.timestampWithOffset}\n`;
+    });
+    
+    output += '\n';
+  });
+  
+  return {
+    formattedOutput: output,
+    organizedTimes: result,
+    timeMap,
+    utcTimes
+  };
+}
+
+// Process times for common US timezones
+let timesByTimezone = {};
+let formattedTimesByTimezone = "";
+
+// Check if we're in Daylight Saving Time
+const isDST = (() => {
+  const today = new Date();
+  const jan = new Date(today.getFullYear(), 0, 1);
+  const jul = new Date(today.getFullYear(), 6, 1);
+  const stdTimezoneOffset = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
+  return today.getTimezoneOffset() < stdTimezoneOffset;
+})();
+
+// Define timezones to process
+const timezones = [
+  { offset: -7 - (isDST ? 1 : 0), name: isDST ? "Pacific Daylight Time (PDT)" : "Pacific Standard Time (PST)" },
+  { offset: -6 - (isDST ? 1 : 0), name: isDST ? "Mountain Daylight Time (MDT)" : "Mountain Standard Time (MST)" },
+  { offset: -5 - (isDST ? 1 : 0), name: isDST ? "Central Daylight Time (CDT)" : "Central Standard Time (CST)" },
+  { offset: -4 - (isDST ? 1 : 0), name: isDST ? "Eastern Daylight Time (EDT)" : "Eastern Standard Time (EST)" }
+];
+
+// Process each timezone
+timezones.forEach(tz => {
+  const result = organizeTimesByDay(rawAvailableTimes.split(','), tz.offset, tz.name);
+  timesByTimezone[tz.name] = result.organizedTimes;
+  formattedTimesByTimezone += result.formattedOutput + "\n";
+});
+
 // Define the variable values using actual values from n8n nodes
 const variableValues = {
   "first_name": $('Code').first().json['First Name'],
   "last_name": $('Code').first().json['Last Name'],
   "email": $('Code').first().json.Email,
   "phone": phone,
-  "available_times": $('Get Calendly Times').first().json.data.startTimes,
+  "available_times": rawAvailableTimes,
+  "formatted_times_by_timezone": formattedTimesByTimezone,
   "calendar_web_url": $('Code').first().json.calendar_web_url,
   "now": nowUtc
 };
@@ -87,6 +285,7 @@ return {
     greeting: processedGreeting,
     greetingJSON: JSON.stringify(processedGreeting),
     formattedPhone: phone,
+    formattedTimesByTimezone,
     remainingVariables,
     allVariablesReplaced: remainingVariables.length === 0
   }
@@ -128,6 +327,7 @@ The node outputs a JSON object containing:
 - `greeting`: The extracted greeting with variables replaced
 - `greetingJSON`: JSON-stringified version of the greeting
 - `formattedPhone`: The formatted phone number
+- `formattedTimesByTimezone`: Organized and formatted times by timezone
 - `remainingVariables`: Any template variables that weren't replaced
 - `allVariablesReplaced`: Boolean indicating if all variables were replaced
 
@@ -159,6 +359,7 @@ You can book a meeting at: {{calendar_web_url}}
   "greeting": "Hey there John, this is Emma from myhomeIQ!",
   "greetingJSON": "\"Hey there John, this is Emma from myhomeIQ!\"",
   "formattedPhone": "+19167927365",
+  "formattedTimesByTimezone": "Pacific Standard Time (PST):\n- For Today, we have: 9:30am\n- For Tomorrow, we have: 9:30am\nMountain Standard Time (MST):\n- For Today, we have: 10:30am\n- For Tomorrow, we have: 10:30am\nCentral Standard Time (CST):\n- For Today, we have: 11:30am\n- For Tomorrow, we have: 11:30am\nEastern Standard Time (EST):\n- For Today, we have: 12:30pm\n- For Tomorrow, we have: 12:30pm",
   "remainingVariables": [],
   "allVariablesReplaced": true
 }
@@ -188,3 +389,146 @@ When using this node's output in an HTTP request to an AI service, use the JSON-
 - The code handles missing values gracefully but doesn't validate the format of emails or other fields
 - Additional template variables can be added to the `variableValues` object as needed
 - The phone formatting logic assumes US/Canada numbers (+1 country code) 
+
+## Updated Prompt for Timezone-Aware Scheduling
+
+```
+Before sharing available times for a demo, first ask the lead: "may I ask what timezone you're in?"
+
+Currently the time in UTC is {{now}}. This helps establish the current time context.
+
+Based on the lead's timezone, use the appropriate section from the following timezone information. Each section shows times already converted to the correct timezone (including daylight savings time adjustments):
+
+{{formatted_times_by_timezone}}
+
+When the lead tells you their timezone, find the matching timezone section above (e.g., PACIFIC TIME, MOUNTAIN TIME, etc.). The times are already organized by day in their local timezone, so you don't need to do any timezone conversion yourself.
+
+When presenting available times:
+
+1. Start with Today's times:
+   - Present only 3-4 times at a time from Today's list
+   - Use simple time format (e.g., "9:30am") without restating the timezone
+   - If there's only one time, use singular wording ("I have one time available at 9:30am")
+   - If there are multiple times, use plural wording ("I have times available at 9:30am, 10:00am, 11:00am, and 1:00pm")
+   - Ask if any of those times work
+   - If none work, present the next 3-4 times from Today
+   - Only move to Tomorrow's times after you've offered all of Today's times
+
+2. If no times from Today work:
+   - Present 3-4 times from Tomorrow
+   - Follow the same format as above
+   - If none work, present the next 3-4 times from Tomorrow
+   - Only move to the next day after offering all times from Tomorrow
+
+3. Continue this pattern for subsequent days:
+   - Always present times in small groups (3-4 at a time)
+   - Only move to the next day after offering all times from the current day
+   - Use a conversational tone, such as "For today, I have availability at 9:00am, 10:00am, 11:00am, and 1:00pm. Would any of those work for you?"
+
+4. Unless we're within a few days of January 1st, you don't need to say the year when listing available start times because the user will know what year it is.
+
+5. If there are no available times at all, apologize and let them know you will have a sales team member reach out personally to help them.
+
+When the lead selects a time, use the corresponding timestamp that appears after the dash (-) character next to their selected time in the correct timezone section. For example, if they select a time like "7:00am" from the PACIFIC TIME section, you would use the specific timestamp that appears after the dash for that exact time in the PACIFIC TIME section (not from any other timezone section).
+
+Once the lead decides their time, use bookCalendlyTime to book it. For the start_time attribute in bookCalendlyTime, use the timezone-specific timestamp that appears after the dash (-) next to their selected time in the correct timezone section. Do not restate the time after booking.
+```
+
+## Example Formatted Output
+
+Below is an example of how the formatted timezone output will appear with the updated code. This example uses the following UTC timestamps as input:
+
+```
+2023-06-15T14:00:00Z,2023-06-15T15:30:00Z,2023-06-15T17:00:00Z,2023-06-15T18:30:00Z,2023-06-16T14:00:00Z,2023-06-16T15:30:00Z,2023-06-16T17:00:00Z,2023-06-16T18:30:00Z,2023-06-19T14:00:00Z,2023-06-19T15:30:00Z,2023-06-19T17:00:00Z,2023-06-19T18:30:00Z
+```
+
+Assuming today is June 15, 2023, and we're in Daylight Saving Time:
+
+```
+==== PACIFIC TIME ====
+(use if user says their time zone is PT, Pacific Time, PST, Pacific Standard Time, or PDT, Pacific Daylight Time)
+
+- For Today (Thursday, June 15), we have: 
+  7:00am - 2023-06-15T07:00:00-07:00
+  8:30am - 2023-06-15T08:30:00-07:00
+  10:00am - 2023-06-15T10:00:00-07:00
+  11:30am - 2023-06-15T11:30:00-07:00
+
+- For Tomorrow (Friday, June 16), we have: 
+  7:00am - 2023-06-16T07:00:00-07:00
+  8:30am - 2023-06-16T08:30:00-07:00
+  10:00am - 2023-06-16T10:00:00-07:00
+  11:30am - 2023-06-16T11:30:00-07:00
+
+- For Monday, June 19, we have: 
+  7:00am - 2023-06-19T07:00:00-07:00
+  8:30am - 2023-06-19T08:30:00-07:00
+  10:00am - 2023-06-19T10:00:00-07:00
+  11:30am - 2023-06-19T11:30:00-07:00
+
+
+==== MOUNTAIN TIME ====
+(use if user says their time zone is MT, Mountain Time, MST, Mountain Standard Time, or MDT, Mountain Daylight Time)
+
+- For Today (Thursday, June 15), we have: 
+  8:00am - 2023-06-15T08:00:00-06:00
+  9:30am - 2023-06-15T09:30:00-06:00
+  11:00am - 2023-06-15T11:00:00-06:00
+  12:30pm - 2023-06-15T12:30:00-06:00
+
+- For Tomorrow (Friday, June 16), we have: 
+  8:00am - 2023-06-16T08:00:00-06:00
+  9:30am - 2023-06-16T09:30:00-06:00
+  11:00am - 2023-06-16T11:00:00-06:00
+  12:30pm - 2023-06-16T12:30:00-06:00
+
+- For Monday, June 19, we have: 
+  8:00am - 2023-06-19T08:00:00-06:00
+  9:30am - 2023-06-19T09:30:00-06:00
+  11:00am - 2023-06-19T11:00:00-06:00
+  12:30pm - 2023-06-19T12:30:00-06:00
+
+
+==== CENTRAL TIME ====
+(use if user says their time zone is CT, Central Time, CST, Central Standard Time, or CDT, Central Daylight Time)
+
+- For Today (Thursday, June 15), we have: 
+  9:00am - 2023-06-15T09:00:00-05:00
+  10:30am - 2023-06-15T10:30:00-05:00
+  12:00pm - 2023-06-15T12:00:00-05:00
+  1:30pm - 2023-06-15T13:30:00-05:00
+
+- For Tomorrow (Friday, June 16), we have: 
+  9:00am - 2023-06-16T09:00:00-05:00
+  10:30am - 2023-06-16T10:30:00-05:00
+  12:00pm - 2023-06-16T12:00:00-05:00
+  1:30pm - 2023-06-16T13:30:00-05:00
+
+- For Monday, June 19, we have: 
+  9:00am - 2023-06-19T09:00:00-05:00
+  10:30am - 2023-06-19T10:30:00-05:00
+  12:00pm - 2023-06-19T12:00:00-05:00
+  1:30pm - 2023-06-19T13:30:00-05:00
+
+
+==== EASTERN TIME ====
+(use if user says their time zone is ET, Eastern Time, EST, Eastern Standard Time, or EDT, Eastern Daylight Time)
+
+- For Today (Thursday, June 15), we have: 
+  10:00am - 2023-06-15T10:00:00-04:00
+  11:30am - 2023-06-15T11:30:00-04:00
+  1:00pm - 2023-06-15T13:00:00-04:00
+  2:30pm - 2023-06-15T14:30:00-04:00
+
+- For Tomorrow (Friday, June 16), we have: 
+  10:00am - 2023-06-16T10:00:00-04:00
+  11:30am - 2023-06-16T11:30:00-04:00
+  1:00pm - 2023-06-16T13:00:00-04:00
+  2:30pm - 2023-06-16T14:30:00-04:00
+
+- For Monday, June 19, we have: 
+  10:00am - 2023-06-19T10:00:00-04:00
+  11:30am - 2023-06-19T11:30:00-04:00
+  1:00pm - 2023-06-19T13:00:00-04:00
+  2:30pm - 2023-06-19T14:30:00-04:00
+``` 
