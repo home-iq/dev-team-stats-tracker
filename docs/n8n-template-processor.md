@@ -109,29 +109,78 @@ function formatTimestampWithOffset(date, tzOffset) {
   return `${isoDate}${offsetString}`;
 }
 
+/**
+ * Determines if a specific date falls within the Daylight Saving Time period
+ * DST in the US starts on the second Sunday in March and ends on the first Sunday in November
+ * @param {Date} date - The date to check
+ * @return {boolean} - True if the date is in DST, false otherwise
+ */
+function isDSTForDate(date) {
+  const year = date.getFullYear();
+  
+  // Calculate second Sunday in March (DST start)
+  const marchSecondSunday = new Date(year, 2, 1); // March 1
+  // Move to second Sunday: add days until we reach Sunday, then add 7 more days
+  marchSecondSunday.setDate(marchSecondSunday.getDate() + (7 - marchSecondSunday.getDay()) % 7 + 7);
+  marchSecondSunday.setHours(2, 0, 0, 0); // 2:00 AM
+  
+  // Calculate first Sunday in November (DST end)
+  const novemberFirstSunday = new Date(year, 10, 1); // November 1
+  // Move to first Sunday: add days until we reach Sunday
+  novemberFirstSunday.setDate(novemberFirstSunday.getDate() + (7 - novemberFirstSunday.getDay()) % 7);
+  novemberFirstSunday.setHours(2, 0, 0, 0); // 2:00 AM
+  
+  // Check if the date is between the DST start and end dates
+  return date >= marchSecondSunday && date < novemberFirstSunday;
+}
+
+/**
+ * Gets the timezone information for a specific date and base timezone
+ * @param {Date} date - The date to get timezone info for
+ * @param {Object} tzBase - The base timezone information (name and base offset)
+ * @return {Object} - Object containing offset, name, and abbreviation
+ */
+function getTimezoneInfo(date, tzBase) {
+  // Check if this specific date is in DST
+  const isDST = isDSTForDate(date);
+  
+  // Apply DST offset if needed (subtract 1 hour during DST)
+  const offset = tzBase.baseOffset - (isDST ? 1 : 0);
+  
+  // Generate the appropriate timezone name and abbreviation
+  const seasonName = isDST ? "Daylight" : "Standard";
+  const abbr = isDST ? tzBase.abbr.replace('S', 'D') : tzBase.abbr;
+  const name = `${tzBase.name} ${seasonName} Time (${abbr})`;
+  
+  return { offset, name, abbr, isDST };
+}
+
 // Function to organize times by day for a specific timezone
-function organizeTimesByDay(times, tzOffset, tzName) {
+function organizeTimesByDay(times, tzBase) {
   const now = new Date();
   const result = {};
   const utcTimes = [];
   const timeMap = {};
   
-  // Parse times and adjust for timezone
+  // Parse times and adjust for timezone with proper DST handling
   times.forEach(timeStr => {
     const utcTime = new Date(timeStr);
     utcTimes.push(utcTime);
     
-    // Create a date object adjusted for the timezone
-    const localTime = new Date(utcTime.getTime() + tzOffset * 60 * 60 * 1000);
+    // Get timezone info for this specific date
+    const tzInfo = getTimezoneInfo(utcTime, tzBase);
+    
+    // Create a date object adjusted for the timezone with the correct DST offset
+    const localTime = new Date(utcTime.getTime() + tzInfo.offset * 60 * 60 * 1000);
     
     // Get day label (Today, Tomorrow, or the date)
-    const dayLabel = getRelativeDayLabel(utcTime, now, tzOffset);
+    const dayLabel = getRelativeDayLabel(utcTime, now, tzInfo.offset);
     
     // Format the time
     const formattedTime = formatTimeIn12HourFormat(localTime);
     
-    // Format the timestamp with timezone offset
-    const timestampWithOffset = formatTimestampWithOffset(utcTime, tzOffset);
+    // Format the timestamp with the correct timezone offset
+    const timestampWithOffset = formatTimestampWithOffset(utcTime, tzInfo.offset);
     
     // Add to result
     if (!result[dayLabel]) {
@@ -142,13 +191,17 @@ function organizeTimesByDay(times, tzOffset, tzName) {
     result[dayLabel].push({
       formattedTime,
       utcTime: timeStr, // Keep original UTC time for booking
-      timestampWithOffset // Add timestamp with timezone offset
+      timestampWithOffset, // Add timestamp with timezone offset
+      isDST: tzInfo.isDST, // Store DST status for reference
+      tzAbbr: tzInfo.abbr // Store timezone abbreviation
     });
     
     // Add to time map
     timeMap[dayLabel][formattedTime] = {
       utcTime: timeStr,
-      timestampWithOffset
+      timestampWithOffset,
+      isDST: tzInfo.isDST,
+      tzAbbr: tzInfo.abbr
     };
   });
   
@@ -160,25 +213,13 @@ function organizeTimesByDay(times, tzOffset, tzName) {
   });
   
   // Create formatted output for this timezone
-  // Extract the timezone name for the header (e.g., "PACIFIC TIME" from "Pacific Daylight Time (PDT)")
-  const tzNameParts = tzName.split(' ');
-  const tzHeader = `${tzNameParts[0].toUpperCase()} TIME`;
+  // Use the base timezone name for the header
+  const tzHeader = `${tzBase.name.toUpperCase()} TIME`;
   
   let output = `==== ${tzHeader} ====\n`;
-  output += `(use if user says their time zone is ${tzNameParts[0].substring(0, 1)}T, ${tzNameParts[0]} Time, `;
-  
-  // Add timezone abbreviations
-  if (tzName.includes('(')) {
-    const abbr = tzName.match(/\(([A-Z]+)\)/)[1];
-    const seasonName = tzName.includes('Daylight') ? 'Daylight' : 'Standard';
-    output += `${abbr}, ${tzNameParts[0]} ${seasonName} Time, `;
-    
-    // Add the alternative abbreviation
-    const altAbbr = abbr.replace('D', 'S');
-    const altSeasonName = seasonName === 'Daylight' ? 'Standard' : 'Daylight';
-    output += `or ${altAbbr.replace('S', 'D')}, ${tzNameParts[0]} ${altSeasonName} Time`;
-  }
-  
+  output += `(use if user says their time zone is ${tzBase.name.substring(0, 1)}T, ${tzBase.name} Time, `;
+  output += `${tzBase.abbr.replace('S', 'D')}, ${tzBase.name} Daylight Time, `;
+  output += `or ${tzBase.abbr}, ${tzBase.name} Standard Time`;
   output += `)\n\n`;
   
   // Get days in order (Today, Tomorrow, then other days sorted by date)
@@ -200,7 +241,8 @@ function organizeTimesByDay(times, tzOffset, tzName) {
     
     // Add each time on its own line with the timestamp after a dash
     result[day].forEach(t => {
-      output += `  ${t.formattedTime} - ${t.timestampWithOffset}\n`;
+      // Include the timezone abbreviation with each time for clarity during DST transitions
+      output += `  ${t.formattedTime} ${t.tzAbbr} - ${t.timestampWithOffset}\n`;
     });
     
     output += '\n';
@@ -218,27 +260,18 @@ function organizeTimesByDay(times, tzOffset, tzName) {
 let timesByTimezone = {};
 let formattedTimesByTimezone = "";
 
-// Check if we're in Daylight Saving Time
-const isDST = (() => {
-  const today = new Date();
-  const jan = new Date(today.getFullYear(), 0, 1);
-  const jul = new Date(today.getFullYear(), 6, 1);
-  const stdTimezoneOffset = Math.max(jan.getTimezoneOffset(), jul.getTimezoneOffset());
-  return today.getTimezoneOffset() < stdTimezoneOffset;
-})();
-
-// Define timezones to process
-const timezones = [
-  { offset: -7 - (isDST ? 1 : 0), name: isDST ? "Pacific Daylight Time (PDT)" : "Pacific Standard Time (PST)" },
-  { offset: -6 - (isDST ? 1 : 0), name: isDST ? "Mountain Daylight Time (MDT)" : "Mountain Standard Time (MST)" },
-  { offset: -5 - (isDST ? 1 : 0), name: isDST ? "Central Daylight Time (CDT)" : "Central Standard Time (CST)" },
-  { offset: -4 - (isDST ? 1 : 0), name: isDST ? "Eastern Daylight Time (EDT)" : "Eastern Standard Time (EST)" }
+// Define base timezone information (without DST adjustment)
+const timezoneDefinitions = [
+  { name: "Pacific", baseOffset: -8, abbr: "PST" },
+  { name: "Mountain", baseOffset: -7, abbr: "MST" },
+  { name: "Central", baseOffset: -6, abbr: "CST" },
+  { name: "Eastern", baseOffset: -5, abbr: "EST" }
 ];
 
-// Process each timezone
-timezones.forEach(tz => {
-  const result = organizeTimesByDay(rawAvailableTimes.split(','), tz.offset, tz.name);
-  timesByTimezone[tz.name] = result.organizedTimes;
+// Process each timezone with proper DST handling for each date
+timezoneDefinitions.forEach(tzBase => {
+  const result = organizeTimesByDay(rawAvailableTimes.split(','), tzBase);
+  timesByTimezone[tzBase.name] = result.organizedTimes;
   formattedTimesByTimezone += result.formattedOutput + "\n";
 });
 
