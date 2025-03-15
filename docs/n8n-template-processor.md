@@ -144,8 +144,10 @@ function getTimezoneInfo(date, tzBase) {
   // Check if this specific date is in DST
   const isDST = isDSTForDate(date);
   
-  // Apply DST offset if needed (subtract 1 hour during DST)
-  const offset = tzBase.baseOffset - (isDST ? 1 : 0);
+  // Apply DST offset if needed (add 1 hour during DST)
+  // During DST, we add 1 hour to make the offset less negative
+  // For example: PST (UTC-8) becomes PDT (UTC-7) during DST
+  const offset = tzBase.baseOffset + (isDST ? 1 : 0);
   
   // Generate the appropriate timezone name and abbreviation
   const seasonName = isDST ? "Daylight" : "Standard";
@@ -241,8 +243,8 @@ function organizeTimesByDay(times, tzBase) {
     
     // Add each time on its own line with the timestamp after a dash
     result[day].forEach(t => {
-      // Include the timezone abbreviation with each time for clarity during DST transitions
-      output += `  ${t.formattedTime} ${t.tzAbbr} - ${t.timestampWithOffset}\n`;
+      // Remove the timezone abbreviation from each time to match prompt instructions
+      output += `  ${t.formattedTime} - ${t.timestampWithOffset}\n`;
     });
     
     output += '\n';
@@ -491,7 +493,7 @@ Assuming today is June 15, 2023, and we're in Daylight Saving Time:
 
 ```
 ==== PACIFIC TIME ====
-(use if user says their time zone is PT, Pacific Time, PST, Pacific Standard Time, or PDT, Pacific Daylight Time)
+(use if user says their time zone is PT, Pacific Time, PDT, Pacific Daylight Time, or PST, Pacific Standard Time)
 
 - For Today (Thursday, June 15), we have: 
   7:00am - 2023-06-15T07:00:00-07:00
@@ -513,7 +515,7 @@ Assuming today is June 15, 2023, and we're in Daylight Saving Time:
 
 
 ==== MOUNTAIN TIME ====
-(use if user says their time zone is MT, Mountain Time, MST, Mountain Standard Time, or MDT, Mountain Daylight Time)
+(use if user says their time zone is MT, Mountain Time, MDT, Mountain Daylight Time, or MST, Mountain Standard Time)
 
 - For Today (Thursday, June 15), we have: 
   8:00am - 2023-06-15T08:00:00-06:00
@@ -535,7 +537,7 @@ Assuming today is June 15, 2023, and we're in Daylight Saving Time:
 
 
 ==== CENTRAL TIME ====
-(use if user says their time zone is CT, Central Time, CST, Central Standard Time, or CDT, Central Daylight Time)
+(use if user says their time zone is CT, Central Time, CDT, Central Daylight Time, or CST, Central Standard Time)
 
 - For Today (Thursday, June 15), we have: 
   9:00am - 2023-06-15T09:00:00-05:00
@@ -557,7 +559,7 @@ Assuming today is June 15, 2023, and we're in Daylight Saving Time:
 
 
 ==== EASTERN TIME ====
-(use if user says their time zone is ET, Eastern Time, EST, Eastern Standard Time, or EDT, Eastern Daylight Time)
+(use if user says their time zone is ET, Eastern Time, EDT, Eastern Daylight Time, or EST, Eastern Standard Time)
 
 - For Today (Thursday, June 15), we have: 
   10:00am - 2023-06-15T10:00:00-04:00
@@ -576,4 +578,10 @@ Assuming today is June 15, 2023, and we're in Daylight Saving Time:
   11:30am - 2023-06-19T11:30:00-04:00
   1:00pm - 2023-06-19T13:00:00-04:00
   2:30pm - 2023-06-19T14:30:00-04:00
-``` 
+```
+
+Note how during Daylight Saving Time:
+- Pacific Standard Time (PST, UTC-8) becomes Pacific Daylight Time (PDT, UTC-7)
+- Mountain Standard Time (MST, UTC-7) becomes Mountain Daylight Time (MDT, UTC-6)
+- Central Standard Time (CST, UTC-6) becomes Central Daylight Time (CDT, UTC-5)
+- Eastern Standard Time (EST, UTC-5) becomes Eastern Daylight Time (EDT, UTC-4) 
