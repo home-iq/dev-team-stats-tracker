@@ -243,8 +243,16 @@ function organizeTimesByDay(times, tzBase) {
     
     // Add each time on its own line with the timestamp after a dash
     result[day].forEach(t => {
-      // Remove the timezone abbreviation from each time to match prompt instructions
-      output += `  ${t.formattedTime} - ${t.timestampWithOffset}\n`;
+      // Extract the time from the timestamp to ensure consistency
+      const timestampTime = t.timestampWithOffset.split('T')[1].substring(0, 5);
+      const hours = parseInt(timestampTime.split(':')[0]);
+      const minutes = timestampTime.split(':')[1];
+      const ampm = hours >= 12 ? 'pm' : 'am';
+      const displayHours = hours % 12 || 12; // Convert 0 to 12
+      const correctedFormattedTime = `${displayHours}:${minutes}${ampm}`;
+      
+      // Use the corrected time format that matches the timestamp
+      output += `  ${correctedFormattedTime} - ${t.timestampWithOffset}\n`;
     });
     
     output += '\n';
