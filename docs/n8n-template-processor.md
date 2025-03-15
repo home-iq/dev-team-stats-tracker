@@ -395,7 +395,7 @@ When using this node's output in an HTTP request to an AI service, use the JSON-
 ```
 Before sharing available times for a demo, first ask the lead: "may I ask what timezone you're in?"
 
-Currently the time in UTC is {{now}}. This helps establish the current time context.
+Currently the time in UTC is {{now}}. Convert this to the lead's timezone to establish the current time context. Never mention UTC time to the lead - always refer to times in their local timezone.
 
 Based on the lead's timezone, use the appropriate section from the following timezone information. Each section shows times already converted to the correct timezone (including daylight savings time adjustments):
 
