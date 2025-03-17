@@ -79,16 +79,31 @@ function getRelativeDayLabel(date, now, tzOffset) {
   const tzNow = new Date(now.getTime() + tzOffset * 60 * 60 * 1000);
   const tzDate = new Date(date.getTime() + tzOffset * 60 * 60 * 1000);
   
-  // Reset time to start of day for comparison
-  const tzNowDay = new Date(tzNow.getFullYear(), tzNow.getMonth(), tzNow.getDate());
-  const tzDateDay = new Date(tzDate.getFullYear(), tzDate.getMonth(), tzDate.getDate());
+  // Extract year, month, day components for both dates in the timezone
+  const tzNowYear = tzNow.getFullYear();
+  const tzNowMonth = tzNow.getMonth();
+  const tzNowDay = tzNow.getDate();
   
-  // Calculate difference in days
-  const diffTime = tzDateDay.getTime() - tzNowDay.getTime();
-  const diffDays = diffTime / (1000 * 60 * 60 * 24);
+  const tzDateYear = tzDate.getFullYear();
+  const tzDateMonth = tzDate.getMonth();
+  const tzDateDay = tzDate.getDate();
   
-  if (diffDays === 0) return `Today (${formatDayName(tzDate)}, ${tzDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })})`;
-  if (diffDays === 1) return `Tomorrow (${formatDayName(tzDate)}, ${tzDate.toLocaleDateString('en-US', { month: 'long', day: 'numeric' })})`;
+  // Create date objects with only the date part (no time) for accurate day comparison
+  const tzNowDateOnly = new Date(tzNowYear, tzNowMonth, tzNowDay);
+  const tzDateDateOnly = new Date(tzDateYear, tzDateMonth, tzDateDay);
+  
+  // Calculate difference in milliseconds and convert to days
+  const diffTime = tzDateDateOnly.getTime() - tzNowDateOnly.getTime();
+  const diffDays = Math.floor(diffTime / (1000 * 60 * 60 * 24)); // Using Math.floor for exact day count
+  
+  // Format the date parts for display
+  const formattedMonth = tzDate.toLocaleDateString('en-US', { month: 'long' });
+  const formattedDay = tzDateDay;
+  const formattedDayName = tzDate.toLocaleDateString('en-US', { weekday: 'long' });
+  
+  // Return appropriate label based on day difference
+  if (diffDays === 0) return `Today (${formattedDayName}, ${formattedMonth} ${formattedDay})`;
+  if (diffDays === 1) return `Tomorrow (${formattedDayName}, ${formattedMonth} ${formattedDay})`;
   return formatDate(tzDate);
 }
 
@@ -159,7 +174,8 @@ function getTimezoneInfo(date, tzBase) {
 
 // Function to organize times by day for a specific timezone
 function organizeTimesByDay(times, tzBase) {
-  const now = new Date();
+  // Use the same UTC time reference that we captured earlier
+  const now = new Date(nowUtc);
   const result = {};
   const utcTimes = [];
   const timeMap = {};
