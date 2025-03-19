@@ -45,7 +45,7 @@ To add or modify salespersons, simply update the array with the correct name (ex
 A lead is considered eligible for processing if it meets ALL of the following criteria:
 
 1. **Not recently called**: The lead has either never been called or was last called more than 24 hours ago
-2. **Appropriate call status**: The "Call Status" field is either empty or set to "Call Completed" (and NOT set to "Do Not Call")
+2. **Appropriate call status**: The "Call Status" field is NOT set to "Do Not Call"
 3. **Not booked**: The "Booked" field is empty/not set
 
 ## Phone Number Normalization
@@ -85,7 +85,7 @@ The function expects the following columns to be present in the Google Sheet:
 - **Phone**: The lead's phone number (will be normalized)
 - **Created At**: Timestamp when the lead was created
 - **Last Called At**: Timestamp when the lead was last called (can be empty)
-- **Call Status**: Current status of call attempts (can be empty, "Call Completed", or "Do Not Call")
+- **Call Status**: Current status of call attempts (can be any value except "Do Not Call")
 - **Booked**: Indicates if a meeting has been booked (should be empty for eligible leads)
 - **Salesperson**: Name of the assigned salesperson (must match names in the configuration array)
 
@@ -168,9 +168,9 @@ for (const item of items) {
   // If the item has never been called or was called more than a day ago
   const notCalledRecently = !lastCalledAt || lastCalledAt < oneDayAgo;
   
-  // Check Call Status is either empty or "Call Completed" and not "Do Not Call"
+  // Check Call Status is not "Do Not Call"
   const callStatus = item.json["Call Status"];
-  const validCallStatus = (!callStatus || callStatus === "Call Completed") && callStatus !== "Do Not Call";
+  const validCallStatus = callStatus !== "Do Not Call";
   
   // Check Booked column is not set
   const booked = item.json["Booked"];
