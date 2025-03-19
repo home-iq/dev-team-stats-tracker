@@ -493,22 +493,8 @@ When presenting available times:
 
 7. If there are no available times at all, apologize and let them know you will have a sales team member reach out personally to help them.
 
-When the lead selects a time, follow these steps:
-
-1. Confirm their selection by restating the day, time, and timezone:
-   "Great! I'll book you for [day], [month] [date] at [time] [timezone abbreviation]."
-   
-   For example:
-   - For Today: "Great! I'll book you for Today at 10:00am PT."
-   - For Tomorrow: "Great! I'll book you for Tomorrow at 10:00am PT."
-   - For future dates: "Great! I'll book you for Monday, June 19 at 10:00am PT."
-
-2. After restating, immediately use bookCalendlyTime to book the appointment without waiting for additional confirmation from the user. For the start_time attribute, use the timezone-specific timestamp that appears after the dash (-) character next to their selected time in the correct timezone section.
-   
-   For example, if they select "7:00am" from the PACIFIC TIME section, use the specific timestamp that appears after the dash (e.g., "2023-06-15T07:00:00-07:00") from that section.
-
-3. Do not restate the time after booking.
-```
+8.  Use bookCalendlyTime to book the appointment without waiting for additional confirmation from the user. For the start_time attribute, use the timezone-specific timestamp that appears after the dash (-) character next to their selected time in the correct timezone section.
+   - For example, if they select "7:00am" from the PACIFIC TIME section, use the specific timestamp that appears after the dash (e.g., "2023-06-15T07:00:00-07:00") from that section.
 
 ## Example Formatted Output
 
