@@ -19,8 +19,23 @@ The implementation uses the standard JavaScript Date object without any external
 // Call Window Checker Function
 // Returns true if current time is within business hours on a business day (not a holiday)
 
-// Get current date/time
-const now = new Date();
+// Get current date/time in UTC
+let now = new Date();
+
+// ===== TEST SECTION =====
+// Uncomment just ONE of the lines below to test with that specific time
+
+// now = new Date(Date.UTC(2025, 2, 19, 16, 0, 0)); // March 19, 2025, 4:00 PM UTC (12:00 PM EDT)
+// now = new Date(Date.UTC(2025, 2, 19, 23, 30, 0)); // March 19, 2025, 11:30 PM UTC (7:30 PM EDT)
+// now = new Date(Date.UTC(2025, 2, 19, 1, 0, 0)); // March 19, 2025, 1:00 AM UTC (9:00 PM EDT previous day)
+// now = new Date(Date.UTC(2025, 6, 4, 15, 0, 0)); // July 4, 2025 (Independence Day), 15:00 UTC (11:00 AM EDT)
+// now = new Date(Date.UTC(2025, 2, 22, 15, 0, 0)); // Saturday, March 22, 2025, 15:00 UTC (11:00 AM EDT)
+// now = new Date(Date.UTC(2025, 11, 24, 15, 0, 0)); // Friday, Dec 24, 2025 (day before Christmas), 15:00 UTC (10:00 AM EST)
+// now = new Date(Date.UTC(2025, 2, 1, 15, 0, 0)); // First day of month test, March 1, 2025
+// now = new Date(Date.UTC(2025, 2, 31, 15, 0, 0)); // Last day of month test, March 31, 2025
+
+// console.log("Testing with time:", now.toISOString()); // Uncomment to see the test time
+// ===== END TEST SECTION =====
 
 // Function to format date as YYYY-M-D
 function formatDateYMD(date) {
@@ -38,52 +53,143 @@ function getDayName(date) {
   return days[date.getDay()];
 }
 
-// Convert to Eastern Time
-// Note: This is a simplified approach and doesn't handle DST perfectly
-function getEasternTime(date) {
-  const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-  // Eastern Time is UTC-5 in standard time, UTC-4 in daylight time
-  // Check if we're in DST (roughly March to November)
-  const month = date.getMonth() + 1; // 1-12
-  const isDST = month > 3 && month < 11;
-  const easternOffset = isDST ? -4 : -5;
-  return new Date(utc + (3600000 * easternOffset));
+// Get Eastern Time information with accurate DST handling
+function getEasternTimeInfo(utcDate) {
+  // Determine if the date is in Eastern Daylight Time
+  // EDT from second Sunday in March to first Sunday in November
+  const year = utcDate.getUTCFullYear();
+  
+  // DST start: second Sunday in March at 2 AM local time (7 AM UTC)
+  const dstStart = new Date(Date.UTC(year, 2, 8, 7, 0, 0)); 
+  dstStart.setUTCDate(dstStart.getUTCDate() + (7 - dstStart.getUTCDay()) % 7 + 7);
+  
+  // DST end: first Sunday in November at 2 AM local time (6 AM UTC)
+  const dstEnd = new Date(Date.UTC(year, 10, 1, 6, 0, 0));
+  dstEnd.setUTCDate(dstEnd.getUTCDate() + (7 - dstEnd.getUTCDay()) % 7);
+  
+  // Check if current date is within DST
+  const isDST = utcDate >= dstStart && utcDate < dstEnd;
+  
+  // Eastern Time offset: UTC-5 for EST, UTC-4 for EDT
+  const etOffset = isDST ? -4 : -5;
+  
+  return {
+    isDST,
+    offset: etOffset,
+    offsetString: etOffset < 0 ? `-0${Math.abs(etOffset)}:00` : `+0${etOffset}:00`,
+    name: isDST ? "EDT" : "EST"
+  };
 }
 
-// Get current time in Eastern Time
-const easternNow = getEasternTime(now);
+// Calculate ET hours from UTC time
+function getETHoursFromUTC(utcHours, etOffset) {
+  let etHours = utcHours + etOffset;
+  if (etHours < 0) etHours += 24;
+  if (etHours >= 24) etHours -= 24;
+  return etHours;
+}
+
+// Get current UTC time
+const utcNow = now;
+
+// Get Eastern Time info
+const etInfo = getEasternTimeInfo(utcNow);
+
+// Calculate ET date components
+const utcYear = utcNow.getUTCFullYear();
+const utcMonth = utcNow.getUTCMonth();
+const utcDay = utcNow.getUTCDate();
+const utcHours = utcNow.getUTCHours();
+const utcMinutes = utcNow.getUTCMinutes();
+const utcSeconds = utcNow.getUTCSeconds();
+
+// Calculate ET hours (this may require day adjustment if crossing midnight)
+let etHours = getETHoursFromUTC(utcHours, etInfo.offset);
+let etDay = utcDay;
+let etMonth = utcMonth;
+let etYear = utcYear;
+
+// Adjust day if needed (when ET day differs from UTC day due to timezone)
+if (utcHours + etInfo.offset < 0) {
+  // It's the previous day in ET
+  const prevDay = new Date(Date.UTC(utcYear, utcMonth, utcDay - 1));
+  etDay = prevDay.getUTCDate();
+  etMonth = prevDay.getUTCMonth();
+  etYear = prevDay.getUTCFullYear();
+} else if (utcHours + etInfo.offset >= 24) {
+  // It's the next day in ET
+  const nextDay = new Date(Date.UTC(utcYear, utcMonth, utcDay + 1));
+  etDay = nextDay.getUTCDate();
+  etMonth = nextDay.getUTCMonth();
+  etYear = nextDay.getUTCFullYear();
+}
+
+// Create timestamp strings with proper timezone format
+const currentETTimestamp = `${etYear}-${(etMonth + 1).toString().padStart(2, '0')}-${etDay.toString().padStart(2, '0')}T${etHours.toString().padStart(2, '0')}:${utcMinutes.toString().padStart(2, '0')}:${utcSeconds.toString().padStart(2, '0')}${etInfo.offsetString}`;
+
+// Create Eastern Time date object for day-based operations
+// Note: This date object is still in UTC internally but represents ET date and time for our calculations
+const easternDate = new Date(Date.UTC(etYear, etMonth, etDay, etHours, utcMinutes, utcSeconds));
+
+// Calculate business hours in UTC (11 AM - 7 PM ET)
+// First, create the times in Eastern Time
+const businessStartHourET = 11;
+const businessEndHourET = 19;
+
+// Convert to UTC hours by subtracting the offset (since ET offset is negative, we add its absolute value)
+const businessStartHourUTC = (businessStartHourET - etInfo.offset) % 24; 
+const businessEndHourUTC = (businessEndHourET - etInfo.offset) % 24;
+
+// Create the full business hours datetime objects in UTC
+const businessHoursStartUTC = new Date(Date.UTC(etYear, etMonth, etDay, businessStartHourUTC, 0, 0));
+const businessHoursEndUTC = new Date(Date.UTC(etYear, etMonth, etDay, businessEndHourUTC, 0, 0));
+
+// Format business hours timestamps in ET with timezone offset
+const businessStartETTimestamp = `${etYear}-${(etMonth + 1).toString().padStart(2, '0')}-${etDay.toString().padStart(2, '0')}T${businessStartHourET.toString().padStart(2, '0')}:00:00${etInfo.offsetString}`;
+const businessEndETTimestamp = `${etYear}-${(etMonth + 1).toString().padStart(2, '0')}-${etDay.toString().padStart(2, '0')}T${businessEndHourET.toString().padStart(2, '0')}:00:00${etInfo.offsetString}`;
 
 // Initialize results
 const result = {
   canMakeCalls: true,
   reasons: [],
   details: {
-    currentTime: easternNow.toISOString(),
+    currentTimeUTC: utcNow.toISOString(),
+    currentTimeET: currentETTimestamp,
+    easternTimeInfo: {
+      isDST: etInfo.isDST,
+      timezone: etInfo.name,
+      offset: etInfo.offset,
+      offsetString: etInfo.offsetString
+    },
     businessHours: {
-      start: new Date(easternNow.getFullYear(), easternNow.getMonth(), easternNow.getDate(), 11, 0, 0).toISOString(),
-      end: new Date(easternNow.getFullYear(), easternNow.getMonth(), easternNow.getDate(), 19, 0, 0).toISOString()
+      startUTC: businessHoursStartUTC.toISOString(),
+      endUTC: businessHoursEndUTC.toISOString(),
+      startET: businessStartETTimestamp,
+      endET: businessEndETTimestamp,
+      startHourET: businessStartHourET,
+      endHourET: businessEndHourET
     },
     today: {
-      date: formatDateYMD(easternNow),
-      weekday: getDayName(easternNow),
-      weekdayNumber: getDayOfWeek(easternNow)
+      dateET: `${etYear}-${etMonth + 1}-${etDay}`,
+      weekday: getDayName(easternDate),
+      weekdayNumber: getDayOfWeek(easternDate)
     },
-    holidays: []
+    testMode: utcNow.getTime() !== new Date().getTime() // Flag indicating if we're in test mode
   }
 };
 
-// Check if current time is within business hours (11 AM - 7 PM ET)
-const businessHoursStart = new Date(easternNow.getFullYear(), easternNow.getMonth(), easternNow.getDate(), 11, 0, 0);
-const businessHoursEnd = new Date(easternNow.getFullYear(), easternNow.getMonth(), easternNow.getDate(), 19, 0, 0);
-const isBusinessHours = easternNow >= businessHoursStart && easternNow <= businessHoursEnd;
+// Check if current time is within business hours
+const isBusinessHours = 
+  utcNow >= businessHoursStartUTC && 
+  utcNow < businessHoursEndUTC;
 
 if (!isBusinessHours) {
   result.canMakeCalls = false;
   result.reasons.push("Outside of business hours (11 AM - 7 PM ET)");
 }
 
-// Check if it's a weekday (Monday-Friday)
-const weekday = getDayOfWeek(easternNow);
+// Check if it's a weekday (Monday-Friday) in Eastern Time
+const weekday = getDayOfWeek(easternDate);
 const isWeekday = weekday >= 1 && weekday <= 5;
 
 if (!isWeekday) {
@@ -97,7 +203,6 @@ function getNthDayOfMonth(year, dayOfWeek, month, n) {
   const firstDay = new Date(year, month - 1, 1);
   let dayOffset = dayOfWeek - firstDay.getDay();
   if (dayOffset < 0) dayOffset += 7;
-  const firstOccurrence = new Date(year, month - 1, 1 + dayOffset);
   return new Date(year, month - 1, 1 + dayOffset + (n - 1) * 7);
 }
 
@@ -112,7 +217,8 @@ function getLastDayOfMonth(year, dayOfWeek, month) {
 }
 
 // Define all US federal holidays for the current year
-const year = easternNow.getFullYear();
+// Use the Eastern Time year to determine holidays
+const year = etYear;
 
 // Calculate floating holidays
 const mlkDay = getNthDayOfMonth(year, 1, 1, 3); // 3rd Monday in January
@@ -155,8 +261,8 @@ result.details.holidays = [
   { name: "Christmas", date: `${year}-12-25` }
 ];
 
-// Check if today is a holiday
-const today = formatDateYMD(easternNow);
+// Check if today is a holiday in Eastern Time
+const today = `${etYear}-${etMonth + 1}-${etDay}`;
 const isHoliday = holidays.includes(today);
 
 if (isHoliday) {
@@ -176,34 +282,50 @@ const fixedDateHolidays = [
   `${year}-12-25`  // Christmas
 ];
 
-// If today is Friday and tomorrow is a fixed-date holiday that falls on Saturday
-const yesterday = new Date(easternNow);
-yesterday.setDate(easternNow.getDate() - 1);
-const tomorrow = new Date(easternNow);
-tomorrow.setDate(easternNow.getDate() + 1);
+// Create yesterday and tomorrow dates in Eastern Time, handling month/year boundaries
+let yesterdayET, tomorrowET;
 
-const tomorrowHolidayCheck = formatDateYMD(tomorrow);
-const isFridayBeforeSaturdayHoliday = getDayOfWeek(easternNow) === 5 && 
-  fixedDateHolidays.includes(tomorrowHolidayCheck);
+// Handle previous day
+if (etDay === 1) {
+  // First day of month, need to go to previous month
+  const prevMonth = new Date(Date.UTC(etYear, etMonth, 0)); // Last day of previous month
+  yesterdayET = new Date(Date.UTC(prevMonth.getUTCFullYear(), prevMonth.getUTCMonth(), prevMonth.getUTCDate()));
+} else {
+  yesterdayET = new Date(Date.UTC(etYear, etMonth, etDay - 1));
+}
+
+// Handle next day
+const lastDayOfMonth = new Date(Date.UTC(etYear, etMonth + 1, 0)).getUTCDate(); // Last day of current month
+if (etDay === lastDayOfMonth) {
+  // Last day of month, need to go to next month
+  tomorrowET = new Date(Date.UTC(etYear, etMonth + 1, 1));
+} else {
+  tomorrowET = new Date(Date.UTC(etYear, etMonth, etDay + 1));
+}
+
+const yesterdayETFormatted = `${yesterdayET.getUTCFullYear()}-${yesterdayET.getUTCMonth() + 1}-${yesterdayET.getUTCDate()}`;
+const tomorrowETFormatted = `${tomorrowET.getUTCFullYear()}-${tomorrowET.getUTCMonth() + 1}-${tomorrowET.getUTCDate()}`;
+
+// Check for observed holidays
+const isFridayBeforeSaturdayHoliday = weekday === 5 && 
+  fixedDateHolidays.includes(tomorrowETFormatted);
 
 if (isFridayBeforeSaturdayHoliday) {
   result.canMakeCalls = false;
   
   // Find which holiday it is
-  const holidayName = result.details.holidays.find(h => h.date === tomorrowHolidayCheck)?.name || "Holiday";
+  const holidayName = result.details.holidays.find(h => h.date === tomorrowETFormatted)?.name || "Holiday";
   result.reasons.push(`Today is Friday before a Saturday holiday (${holidayName})`);
 }
 
-// If today is Monday and yesterday was a fixed-date holiday that fell on Sunday
-const yesterdayHolidayCheck = formatDateYMD(yesterday);
-const isMondayAfterSundayHoliday = getDayOfWeek(easternNow) === 1 && 
-  fixedDateHolidays.includes(yesterdayHolidayCheck);
+const isMondayAfterSundayHoliday = weekday === 1 && 
+  fixedDateHolidays.includes(yesterdayETFormatted);
 
 if (isMondayAfterSundayHoliday) {
   result.canMakeCalls = false;
   
   // Find which holiday it is
-  const holidayName = result.details.holidays.find(h => h.date === yesterdayHolidayCheck)?.name || "Holiday";
+  const holidayName = result.details.holidays.find(h => h.date === yesterdayETFormatted)?.name || "Holiday";
   result.reasons.push(`Today is Monday after a Sunday holiday (${holidayName})`);
 }
 
@@ -225,123 +347,218 @@ return items;
 
 ## Key Components
 
-### Timezone Handling
-
-The implementation includes a custom function to convert to Eastern Time, with basic handling of Daylight Saving Time:
+### Test Section
+The implementation includes a test section at the beginning of the code that allows you to test various scenarios by uncommenting specific test cases:
 
 ```javascript
-function getEasternTime(date) {
-  const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-  // Eastern Time is UTC-5 in standard time, UTC-4 in daylight time
-  // Check if we're in DST (roughly March to November)
-  const month = date.getMonth() + 1; // 1-12
-  const isDST = month > 3 && month < 11;
-  const easternOffset = isDST ? -4 : -5;
-  return new Date(utc + (3600000 * easternOffset));
+// ===== TEST SECTION =====
+// Uncomment just ONE of the lines below to test with that specific time
+
+// now = new Date(Date.UTC(2025, 2, 19, 16, 0, 0)); // March 19, 2025, 4:00 PM UTC (12:00 PM EDT)
+// now = new Date(Date.UTC(2025, 2, 19, 23, 30, 0)); // March 19, 2025, 11:30 PM UTC (7:30 PM EDT)
+// now = new Date(Date.UTC(2025, 6, 4, 15, 0, 0)); // July 4, 2025 (Independence Day), 15:00 UTC (11:00 AM EDT)
+// ...
+```
+
+This makes it easy to validate the function's behavior with different dates, times, holidays, and weekends.
+
+### Enhanced Timezone Handling
+
+The implementation includes robust handling of Eastern Time with accurate Daylight Saving Time transitions:
+
+```javascript
+function getEasternTimeInfo(utcDate) {
+  // Determine if the date is in Eastern Daylight Time
+  // EDT from second Sunday in March to first Sunday in November
+  const year = utcDate.getUTCFullYear();
+  
+  // DST start: second Sunday in March at 2 AM local time (7 AM UTC)
+  const dstStart = new Date(Date.UTC(year, 2, 8, 7, 0, 0)); 
+  dstStart.setUTCDate(dstStart.getUTCDate() + (7 - dstStart.getUTCDay()) % 7 + 7);
+  
+  // DST end: first Sunday in November at 2 AM local time (6 AM UTC)
+  const dstEnd = new Date(Date.UTC(year, 10, 1, 6, 0, 0));
+  dstEnd.setUTCDate(dstEnd.getUTCDate() + (7 - dstEnd.getUTCDay()) % 7);
+  
+  // Check if current date is within DST
+  const isDST = utcDate >= dstStart && utcDate < dstEnd;
+  
+  // Eastern Time offset: UTC-5 for EST, UTC-4 for EDT
+  const etOffset = isDST ? -4 : -5;
+  
+  return {
+    isDST,
+    offset: etOffset,
+    offsetString: etOffset < 0 ? `-0${Math.abs(etOffset)}:00` : `+0${etOffset}:00`,
+    name: isDST ? "EDT" : "EST"
+  };
 }
 ```
 
-### Business Hours Check
+This function accurately determines whether a date falls within Daylight Saving Time based on the US rules (second Sunday in March to first Sunday in November). It returns complete timezone information including the offset and proper timezone abbreviation.
 
-Business hours are defined as 11 AM to 7 PM Eastern Time.
+### Day Boundary Handling
+
+The code properly handles day boundaries when converting between UTC and Eastern Time:
 
 ```javascript
-const businessHoursStart = new Date(easternNow.getFullYear(), easternNow.getMonth(), easternNow.getDate(), 11, 0, 0);
-const businessHoursEnd = new Date(easternNow.getFullYear(), easternNow.getMonth(), easternNow.getDate(), 19, 0, 0);
-const isBusinessHours = easternNow >= businessHoursStart && easternNow <= businessHoursEnd;
+// Adjust day if needed (when ET day differs from UTC day due to timezone)
+if (utcHours + etInfo.offset < 0) {
+  // It's the previous day in ET
+  const prevDay = new Date(Date.UTC(utcYear, utcMonth, utcDay - 1));
+  etDay = prevDay.getUTCDate();
+  etMonth = prevDay.getUTCMonth();
+  etYear = prevDay.getUTCFullYear();
+} else if (utcHours + etInfo.offset >= 24) {
+  // It's the next day in ET
+  const nextDay = new Date(Date.UTC(utcYear, utcMonth, utcDay + 1));
+  etDay = nextDay.getUTCDate();
+  etMonth = nextDay.getUTCMonth();
+  etYear = nextDay.getUTCFullYear();
+}
 ```
+
+This ensures that when converting UTC times near midnight to Eastern Time, the date is correctly adjusted.
+
+### Business Hours Check
+
+Business hours are defined as 11 AM to 7 PM Eastern Time and properly converted to UTC for comparison:
+
+```javascript
+// Calculate business hours in UTC (11 AM - 7 PM ET)
+// First, create the times in Eastern Time
+const businessStartHourET = 11;
+const businessEndHourET = 19;
+
+// Convert to UTC hours by subtracting the offset (since ET offset is negative, we add its absolute value)
+const businessStartHourUTC = (businessStartHourET - etInfo.offset) % 24; 
+const businessEndHourUTC = (businessEndHourET - etInfo.offset) % 24;
+
+// Create the full business hours datetime objects in UTC
+const businessHoursStartUTC = new Date(Date.UTC(etYear, etMonth, etDay, businessStartHourUTC, 0, 0));
+const businessHoursEndUTC = new Date(Date.UTC(etYear, etMonth, etDay, businessEndHourUTC, 0, 0));
+```
+
+This conversion ensures that 11 AM to 7 PM Eastern Time is correctly represented in UTC, accounting for both Standard Time and Daylight Saving Time.
+
+### Month Boundary Handling for Adjacent Days
+
+The implementation properly handles month boundaries when determining adjacent days (yesterday and tomorrow) for observed holiday checks:
+
+```javascript
+// Create yesterday and tomorrow dates in Eastern Time, handling month/year boundaries
+let yesterdayET, tomorrowET;
+
+// Handle previous day
+if (etDay === 1) {
+  // First day of month, need to go to previous month
+  const prevMonth = new Date(Date.UTC(etYear, etMonth, 0)); // Last day of previous month
+  yesterdayET = new Date(Date.UTC(prevMonth.getUTCFullYear(), prevMonth.getUTCMonth(), prevMonth.getUTCDate()));
+} else {
+  yesterdayET = new Date(Date.UTC(etYear, etMonth, etDay - 1));
+}
+
+// Handle next day
+const lastDayOfMonth = new Date(Date.UTC(etYear, etMonth + 1, 0)).getUTCDate(); // Last day of current month
+if (etDay === lastDayOfMonth) {
+  // Last day of month, need to go to next month
+  tomorrowET = new Date(Date.UTC(etYear, etMonth + 1, 1));
+} else {
+  tomorrowET = new Date(Date.UTC(etYear, etMonth, etDay + 1));
+}
+```
+
+This ensures that even at month boundaries (e.g., January 1st or the last day of a month), the adjacent days are correctly determined.
 
 ### Weekday Check
 
-Weekdays are defined as Monday (1) through Friday (5) using the day of week value.
+Weekdays are defined as Monday (1) through Friday (5) using the day of week value based on Eastern Time:
 
 ```javascript
-const weekday = getDayOfWeek(easternNow);
+// Check if it's a weekday (Monday-Friday) in Eastern Time
+const weekday = getDayOfWeek(easternDate);
 const isWeekday = weekday >= 1 && weekday <= 5;
 ```
 
 ### US Federal Holidays
 
-The implementation calculates all US federal holidays for the current year, including both fixed-date holidays and floating holidays (like Thanksgiving or Memorial Day).
-
-Fixed-date holidays:
-- New Year's Day (January 1)
-- Juneteenth (June 19)
-- Independence Day (July 4)
-- Veterans Day (November 11)
-- Christmas (December 25)
-
-Floating holidays:
-- Martin Luther King Jr. Day (3rd Monday in January)
-- Presidents' Day (3rd Monday in February)
-- Memorial Day (last Monday in May)
-- Labor Day (1st Monday in September)
-- Columbus Day / Indigenous Peoples' Day (2nd Monday in October)
-- Thanksgiving (4th Thursday in November)
+The implementation calculates all US federal holidays for the current year in Eastern Time, including both fixed-date holidays and floating holidays.
 
 ### Observed Holidays
 
-When a fixed-date holiday falls on a weekend, it's typically observed on the nearest weekday:
+The code correctly identifies observed holidays when fixed-date holidays fall on weekends:
+
+```javascript
+// Check for observed holidays
+const isFridayBeforeSaturdayHoliday = weekday === 5 && 
+  fixedDateHolidays.includes(tomorrowETFormatted);
+
+const isMondayAfterSundayHoliday = weekday === 1 && 
+  fixedDateHolidays.includes(yesterdayETFormatted);
+```
+
+This ensures that:
 - Saturday holidays are observed on the preceding Friday
 - Sunday holidays are observed on the following Monday
 
-The implementation checks for these cases to prevent calls on observed holidays.
-
-## Usage in n8n
-
-This code is designed to be used in a Code node in n8n workflows to control whether outbound calls should be made. The function processes all input items and adds a `callWindow` property to each item with detailed information about the call window status.
-
-### Example Workflow Structure
-
-```
-[Trigger] → [Call Window Checker Code] → [IF (item.json.callWindow.canMakeCalls)] → (true) → [Make Call]
-                                                                                  → (false) → [Schedule for Later]
-```
-
 ## Debugging
 
-The implementation includes a detailed result object that provides comprehensive information for debugging:
+The implementation includes comprehensive debugging information in the result object:
 
 ```javascript
 const result = {
-  canMakeCalls: true,  // Boolean indicating if calls can be made
-  reasons: [],         // Array of reasons why calls cannot be made (if applicable)
+  canMakeCalls: true,
+  reasons: [],
   details: {
-    currentTime: easternNow.toISOString(),  // Current time in Eastern Time
+    currentTimeUTC: utcNow.toISOString(),
+    currentTimeET: currentETTimestamp,
+    easternTimeInfo: {
+      isDST: etInfo.isDST,
+      timezone: etInfo.name,
+      offset: etInfo.offset,
+      offsetString: etInfo.offsetString
+    },
     businessHours: {
-      start: businessHoursStart.toISOString(),  // Business hours start time
-      end: businessHoursEnd.toISOString()       // Business hours end time
+      startUTC: businessHoursStartUTC.toISOString(),
+      endUTC: businessHoursEndUTC.toISOString(),
+      startET: businessStartETTimestamp,
+      endET: businessEndETTimestamp,
+      startHourET: businessStartHourET,
+      endHourET: businessEndHourET
     },
     today: {
-      date: formatDateYMD(easternNow),          // Today's date in YYYY-M-D format
-      weekday: getDayName(easternNow),          // Today's weekday name
-      weekdayNumber: getDayOfWeek(easternNow)   // Today's weekday number (0-6)
+      dateET: `${etYear}-${etMonth + 1}-${etDay}`,
+      weekday: getDayName(easternDate),
+      weekdayNumber: getDayOfWeek(easternDate)
     },
-    holidays: []  // Array of holiday objects with name and date
+    testMode: utcNow.getTime() !== new Date().getTime() // Flag indicating if we're in test mode
   }
 };
 ```
 
-This detailed information makes it easy to identify which condition might be preventing calls from being made.
+This provides:
+- Current time in both UTC and Eastern Time with proper timezone offset
+- Eastern Time information (DST status, timezone name, offset)
+- Business hours in both UTC and Eastern Time
+- Date information in Eastern Time (date, weekday)
+- Holiday information
+- Test mode indicator
 
 ## Customization
 
-To modify the business hours, adjust the hour values in the business hours check:
+To modify the business hours, adjust the hour values in the business hours definition:
 
 ```javascript
-const businessHoursStart = new Date(easternNow.getFullYear(), easternNow.getMonth(), easternNow.getDate(), 9, 0, 0); // Change from 11 to 9 for 9 AM start
-const businessHoursEnd = new Date(easternNow.getFullYear(), easternNow.getMonth(), easternNow.getDate(), 17, 0, 0); // Change from 19 to 17 for 5 PM end
+// First, create the times in Eastern Time
+const businessStartHourET = 11; // Change from 11 to 9 for 9 AM start
+const businessEndHourET = 19;   // Change from 19 to 17 for 5 PM end
 ```
 
-To use a different timezone, modify the `getEasternTime` function to use a different offset:
+To test the code with different dates and times, use the test section at the beginning:
 
 ```javascript
-// For Central Time (UTC-6/UTC-5)
-function getCentralTime(date) {
-  const utc = date.getTime() + (date.getTimezoneOffset() * 60000);
-  const month = date.getMonth() + 1;
-  const isDST = month > 3 && month < 11;
-  const centralOffset = isDST ? -5 : -6;
-  return new Date(utc + (3600000 * centralOffset));
-}
-``` 
+// Uncomment just ONE of the lines below to test with that specific time
+// now = new Date(Date.UTC(2025, 2, 19, 16, 0, 0)); // March 19, 2025, 4:00 PM UTC (12:00 PM EDT)
+```
+
+To use a different timezone, modify the `getEasternTimeInfo` function to use a different set of offset values and DST rules.
