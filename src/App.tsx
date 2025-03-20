@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import Index from "./pages/Index";
 import TestSdr from "./pages/TestSdr";
+import V0PromptHighlightsPage from "./pages/V0PromptHighlights";
 
 const queryClient = new QueryClient();
 
@@ -20,6 +21,7 @@ const App = () => (
           <Route path="/contributor/:contributorId" element={<Index />} />
           <Route path="/contributor/:contributorId/:month" element={<Index />} />
           <Route path="/test-sdr" element={<TestSdr />} />
+          <Route path="/v0-prompt-highlights" element={<V0PromptHighlightsPage />} />
         </Routes>
       </BrowserRouter>
     </TooltipProvider>
