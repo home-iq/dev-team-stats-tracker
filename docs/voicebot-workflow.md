@@ -607,7 +607,7 @@ The system is hosted on dedicated infrastructure to ensure performance and relia
 
 - **Provider**: Hetzner Cloud
 - **Management**: Deployed and managed via Coolify
-- **IP Addressing**: See [Security Section](#credentials) for server access details
+- **IP Addressing**: See [CREDENTIALS section](#credentials) for server access details
 - **Location**: Hetzner data center
 
 ### Service Hosting
@@ -615,7 +615,7 @@ The system is hosted on dedicated infrastructure to ensure performance and relia
 The server hosts several critical components of the system:
 
 - **n8n Instance**: 
-  - Authentication credentials available in the [Security Section](#credentials)
+  - Authentication credentials available in the [CREDENTIALS section](#credentials)
   - Runs all the workflow automation
   - Configuration persistence via internal database
 
@@ -623,15 +623,15 @@ The server hosts several critical components of the system:
   - Provides headless browser capabilities for Calendly interactions
   - Used by the book-calendly-time.ts Cloudflare Worker
   - Enables automated form filling and appointment booking
-  - Access token available in the [Security Section](#credentials)
+  - Access token available in the [CREDENTIALS section](#credentials)
 
 ### API Integration Security
 
 The system uses secure API integration methods for all services:
 
-- **Close CRM**: Credentials available in the [Security Section](#credentials)
-- **Calendly**: API token available in the [Security Section](#credentials)
-- **VAPI**: Secret key available in the [Security Section](#credentials)
+- **Close CRM**: Credentials available in the [CREDENTIALS section](#credentials)
+- **Calendly**: API token available in the [CREDENTIALS section](#credentials)
+- **VAPI**: Secret key available in the [CREDENTIALS section](#credentials)
 - **Cloudflare Workers**: Environment variables stored in Cloudflare dashboard for each worker
 
 ## CREDENTIALS
