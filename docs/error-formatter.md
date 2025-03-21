@@ -9,6 +9,7 @@ This documentation describes the n8n Code node used to format workflow error mes
 const errorData = $('Error Trigger').first().json;
 const errorString = errorData.execution.error.message;
 const closeID = $('Get Workflow').first().json.data.resultData.runData.Code[0].data.main[0][0].json['Close ID'];
+const callLog = $('Get Workflow').first().json.data.resultData.runData.Code[0].data.main[0][0].json['Call Log'];
 
 // Extract just the clean error message
 let cleanErrorMessage = errorString;
@@ -44,6 +45,12 @@ try {
   // Fall back to original message
 }
 
+// Format the updated call log with error information
+const updatedCallLog = `:: Error running workflow #${errorData.execution?.id || 'unknown'}
+  :: Error: ${cleanErrorMessage || errorString || 'Unknown error'}
+  :: Execution URL: ${errorData.execution?.url || 'n/a'}
+${callLog ? '\n' + callLog : ''}`;
+
 // Format the Slack message
 const slackMessage = `🚨 *Workflow Error Alert*
 
@@ -69,7 +76,8 @@ return {
     errorDescription: errorData.execution?.error?.description || null,
     executionUrl: errorData.execution?.url || null,
     cleanErrorMessage: cleanErrorMessage || null,
-    closeID: closeID || null
+    closeID: closeID || null,
+    callLog: updatedCallLog
   }
 };
 ```
@@ -133,6 +141,7 @@ The code outputs a JSON object with the following properties:
 - `executionUrl`: The URL to the workflow execution
 - `cleanErrorMessage`: The parsed, human-readable error message
 - `closeID`: The Close CRM ID retrieved from the workflow execution data
+- `callLog`: The updated call log with error information
 
 This expanded output format allows downstream nodes to access individual components of the error data for custom processing, logging, or integration with other systems.
 
@@ -146,16 +155,20 @@ Example output:
   "errorDescription": "Error connecting to API",
   "executionUrl": "https://your-n8n-instance/workflow/abc123/executions/1545",
   "cleanErrorMessage": "customer.number must be a valid phone number in the E.164 format. Hot tip, you may be missing the country code (Eg. US: +1).",
-  "closeID": "lead_abc123456789"
+  "closeID": "lead_abc123456789",
+  "callLog": ":: Error running workflow #1545
+    :: Error: customer.number must be a valid phone number in the E.164 format. Hot tip, you may be missing the country code (Eg. US: +1).
+    :: Execution URL: https://your-n8n-instance/workflow/abc123/executions/1545"
 }
 ```
 
 ## Customization
 
 ### Retrieving Additional Data
-The code now retrieves the Close ID from another node in the workflow using:
+The code now retrieves the Close ID and call log from another node in the workflow using:
 ```javascript
 const closeID = $('Get Workflow').first().json.data.resultData.runData.Code[0].data.main[0][0].json['Close ID'];
+const callLog = $('Get Workflow').first().json.data.resultData.runData.Code[0].data.main[0][0].json['Call Log'];
 ```
 
 You can follow this pattern to retrieve additional data from other nodes in your workflow:
