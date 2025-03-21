@@ -6,8 +6,9 @@ This documentation describes the n8n Code node used to format workflow error mes
 ## Code
 ```javascript
 // Get the error data from the input
-const errorData = $input.first().json;
+const errorData = $('Error Trigger').first().json;
 const errorString = errorData.execution.error.message;
+const closeID = $('Get Workflow').first().json.data.resultData.runData.Code[0].data.main[0][0].json['Close ID'];
 
 // Extract just the clean error message
 let cleanErrorMessage = errorString;
@@ -46,22 +47,29 @@ try {
 // Format the Slack message
 const slackMessage = `🚨 *Workflow Error Alert*
 
-*Workflow:* ${errorData.workflow.name}
-*Execution ID:* ${errorData.execution.id}
-*Node:* Make the Call
-*Error Type:* ${errorData.execution.error.level} ${errorData.execution.error.name}
+*Workflow:* ${errorData.workflow?.name || null}
+*Execution ID:* ${errorData.execution?.id || null}
+*Node:* ${errorData.execution?.error?.node?.name ? errorData.execution?.error?.node?.name : "n/a"}
+*Error Type:* ${errorData.execution?.error?.level ? errorData.execution?.error?.level : "n/a"} ${errorData.execution?.error?.description ? errorData.execution?.error?.description : "n/a"}
 
-*Execution URL:* ${errorData.execution.url}
+*Execution URL:* ${errorData.execution?.url || null}
 
 *Error Message:*
 \`\`\`
-${cleanErrorMessage}
+${cleanErrorMessage || null}
 \`\`\``;
 
 // Return the formatted message
 return {
   json: {
-    message: slackMessage
+    message: slackMessage,
+    workflowName: errorData.workflow?.name || null,
+    executionId: errorData.execution?.id || null,
+    errorLevel: errorData.execution?.error?.level || null,
+    errorDescription: errorData.execution?.error?.description || null,
+    executionUrl: errorData.execution?.url || null,
+    cleanErrorMessage: cleanErrorMessage || null,
+    closeID: closeID || null
   }
 };
 ```
@@ -116,20 +124,52 @@ The code expects input in this format:
 ```
 
 ### Output
-The code outputs a JSON object with a single property `message` containing the formatted Slack message:
+The code outputs a JSON object with the following properties:
+- `message`: The formatted Slack message
+- `workflowName`: The name of the workflow that encountered the error
+- `executionId`: The execution ID of the failed workflow run
+- `errorLevel`: The error level (e.g., "warning")
+- `errorDescription`: The error description 
+- `executionUrl`: The URL to the workflow execution
+- `cleanErrorMessage`: The parsed, human-readable error message
+- `closeID`: The Close CRM ID retrieved from the workflow execution data
+
+This expanded output format allows downstream nodes to access individual components of the error data for custom processing, logging, or integration with other systems.
+
+Example output:
 ```json
 {
-  "message": "🚨 *Workflow Error Alert*\n\n*Workflow:* Your Workflow Name\n*Execution ID:* 1545\n*Node:* Make the Call\n*Error Type:* warning NodeOperationError\n\n*Execution URL:* https://your-n8n-instance/workflow/abc123/executions/1545\n\n*Error Message:*\n```\ncustomer.number must be a valid phone number in the E.164 format. Hot tip, you may be missing the country code (Eg. US: +1).\n```"
+  "message": "🚨 *Workflow Error Alert*\n\n*Workflow:* Your Workflow Name\n*Execution ID:* 1545\n*Node:* HTTP Request\n*Error Type:* warning Error connecting to API\n\n*Execution URL:* https://your-n8n-instance/workflow/abc123/executions/1545\n\n*Error Message:*\n```\ncustomer.number must be a valid phone number in the E.164 format. Hot tip, you may be missing the country code (Eg. US: +1).\n```",
+  "workflowName": "Your Workflow Name",
+  "executionId": "1545",
+  "errorLevel": "warning",
+  "errorDescription": "Error connecting to API",
+  "executionUrl": "https://your-n8n-instance/workflow/abc123/executions/1545",
+  "cleanErrorMessage": "customer.number must be a valid phone number in the E.164 format. Hot tip, you may be missing the country code (Eg. US: +1).",
+  "closeID": "lead_abc123456789"
 }
 ```
 
 ## Customization
 
-### Modifying the Node Name
-By default, the code uses "Make the Call" as the node name. Update this line to reference the actual node where the error occurred:
+### Retrieving Additional Data
+The code now retrieves the Close ID from another node in the workflow using:
 ```javascript
-*Node:* ${errorData.execution.error.nodeName || "Make the Call"}
+const closeID = $('Get Workflow').first().json.data.resultData.runData.Code[0].data.main[0][0].json['Close ID'];
 ```
+
+You can follow this pattern to retrieve additional data from other nodes in your workflow:
+1. Identify the node containing the data (e.g., 'Get Workflow')
+2. Use the proper path to access the specific data you need
+3. Store it in a variable for use in your output
+
+### Modifying the Node Name
+The code dynamically displays the name of the node where the error occurred, with a fallback to "n/a" if not available:
+```javascript
+*Node:* ${errorData.execution.error && errorData.execution.error.node && errorData.execution.error.node.name ? errorData.execution.error.node.name : "n/a"}
+```
+
+This ensures that the exact node causing the error is always shown in the Slack message or provides a clear indication when the information isn't available.
 
 ### Adding Custom Fields
 To add more fields to the Slack message, add them to the template literal:
@@ -138,9 +178,8 @@ const slackMessage = `🚨 *Workflow Error Alert*
 
 *Workflow:* ${errorData.workflow.name}
 *Execution ID:* ${errorData.execution.id}
-*Node:* Make the Call
-*Error Type:* ${errorData.execution.error.level} ${errorData.execution.error.name}
-*Custom Field:* ${errorData.customValue}
+*Node:* ${errorData.execution.error && errorData.execution.error.node && errorData.execution.error.node.name ? errorData.execution.error.node.name : "n/a"}
+*Error Type:* ${errorData.execution.error && errorData.execution.error.level ? errorData.execution.error.level : "n/a"} ${errorData.execution.error && errorData.execution.error.description ? errorData.execution.error.description : "n/a"}
 
 *Execution URL:* ${errorData.execution.url}
 
@@ -168,3 +207,34 @@ If you encounter new error formats, update the extraction logic accordingly.
 
 ### Slack Message Formatting
 For Slack message formatting, refer to the [Slack Formatting Guide](https://api.slack.com/reference/surfaces/formatting) to ensure proper rendering of the message. 
+
+## Integration with Other Systems
+
+### Using the Expanded Output
+With the expanded output format, you can now easily integrate the error data with other systems beyond Slack:
+
+#### CRM Integration
+Use the `closeID` to update records in your CRM system:
+```
+[Error Formatter] → [HTTP Request to CRM API]
+```
+
+In the HTTP Request node, you can use the expression `{{$node["Error Formatter"].json.closeID}}` to access the Close ID.
+
+#### Error Logging
+Create comprehensive error logs by accessing specific error components:
+```
+[Error Formatter] → [Write to Error Log]
+```
+
+This allows you to structure your error logs with specific fields rather than just the formatted message.
+
+#### Custom Notifications
+Build different notification formats for different channels:
+```
+[Error Formatter] → [Email Node]
+[Error Formatter] → [Slack Node]
+[Error Formatter] → [MS Teams Node]
+```
+
+Each notification channel can access the specific error components they need, customizing the format for each platform.
