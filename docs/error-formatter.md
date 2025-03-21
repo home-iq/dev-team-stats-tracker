@@ -48,6 +48,7 @@ try {
 // Format the updated call log with error information
 const updatedCallLog = `:: Error running workflow #${errorData.execution?.id || 'unknown'}
   :: Error: ${cleanErrorMessage || errorString || 'Unknown error'}
+  :: Node: ${errorData.execution?.error?.node?.name ? errorData.execution?.error?.node?.name : "n/a"}
   :: Execution URL: ${errorData.execution?.url || 'n/a'}
 ${callLog ? '\n' + callLog : ''}`;
 
@@ -158,6 +159,7 @@ Example output:
   "closeID": "lead_abc123456789",
   "callLog": ":: Error running workflow #1545
     :: Error: customer.number must be a valid phone number in the E.164 format. Hot tip, you may be missing the country code (Eg. US: +1).
+    :: Node: HTTP Request
     :: Execution URL: https://your-n8n-instance/workflow/abc123/executions/1545"
 }
 ```
