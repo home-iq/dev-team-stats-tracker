@@ -1,4 +1,4 @@
-# Documentation: Close CRM Lead Puller
+# Close CRM Lead Puller
 
 ## Overview
 This code retrieves leads from a Close CRM smart view, processes them to extract key information, and returns a structured dataset. It implements proper pagination and rate limit handling to reliably fetch large numbers of leads. It also identifies which leads in the Google Sheet need to be retired (no longer in the Smart View) and which are still valid.

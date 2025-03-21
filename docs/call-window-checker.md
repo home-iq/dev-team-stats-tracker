@@ -1,4 +1,4 @@
-# Call Window Checker for n8n
+# Call Window Checker
 
 This document explains the implementation of the call window checker expression used in n8n workflows to ensure calls are only made during appropriate business hours on business days, excluding US federal holidays.
 

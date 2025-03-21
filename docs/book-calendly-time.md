@@ -199,6 +199,6 @@ Debug information is included in the response to help troubleshoot issues.
 
 ## Known Limitations
 
-- Custom fields beyond name, email, and phone may not be handled automatically
+- Custom fields beyond name, email, and phone are not handled automatically
 - Changes to Calendly's form structure may require updates to the automation logic
 - Very high booking volumes may be rate-limited by Calendly or Browserless 

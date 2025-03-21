@@ -1,4 +1,4 @@
-# Documentation: VAPI Call Tracker
+# VAPI Call Tracker
 
 ## Overview
 This n8n function node processes VAPI call data and updates a Google Sheet with call information, including status, logs, and recording URLs. It's designed to maintain a comprehensive call history for each lead, with detailed information about call duration and recordings.

@@ -1,4 +1,4 @@
-# Documentation: Template Variable Processor with Greeting Extraction and Phone Formatting
+# Prompt Template Variable Processor with Greeting Extraction and Phone Formatting
 
 ## Overview
 This n8n code node processes a template-based content string, extracts a greeting section, formats phone numbers, and replaces template variables with actual values. It's designed to prepare content for an AI-powered SDR (Sales Development Representative) system.
