@@ -185,21 +185,22 @@ The complete lead processing and booking system involves multiple interconnected
    - Triggered by schedule or webhook
    - Checks if current time is within call window
    - Retrieves leads ready for calling from Google Sheet
+   - Prepares personalized conversation scripts for each lead
 
-3. **Call Execution**
+   **Call Execution (continued in same workflow)**
    - Updates sheet to show call is in progress
    - Retrieves available Calendly times
    - Makes the call via VAPI with prepared prompt and available times
    - AI agent engages in conversation with the prospect
    - If successful, books an appointment via Calendly integration (bookCalendlyTime tool setup in VAPI & called by model)
 
-4. **Call Tracking and Results**
+   **Call Tracking and Results (final phase of same workflow)**
    - Updates Google Sheet with call status, duration, and recording link
    - For successful bookings, extracts and formats appointment details
    - Sends notifications via Slack for call outcomes
-   - May trigger additional error workflow if needed before proceeding to next lead. 
+   - May trigger additional error workflow if needed before proceeding to next lead
 
-5. **Testing and Refinement (Voice Agent - Prompt Tester)**
+3. **Testing and Refinement (Voice Agent - Prompt Tester)**
    - Allows team members to test conversation flows without calling real leads
    - Uses development environment to simulate and refine the AI agent's responses
    - Helps optimize scripts and conversation paths
@@ -344,45 +345,6 @@ The workflow consists of several key stages that process a call from initiation 
 #### Slack1 (post: message)
 - Alerts the team about workflow errors via Slack
 
-## Key Technologies and Integrations
-
-### VAPI (Voice API)
-- Handles voice communication aspects of the system
-- Processes natural language and manages conversations
-- Provides API endpoints for call management
-- Uses Twilio for outbound calling
-
-### Twilio
-- Provides the phone number infrastructure for outbound calling
-- Connects the AI voice agent to the telephone network
-- Enables making calls to prospects' phone numbers
-
-### Calendly
-- Provides scheduling infrastructure
-- Exposes available time slots for booking
-- Handles the actual appointment creation
-
-### Cloudflare
-- Hosts our worker functions for the system
-- Provides the serverless deployment environment
-- Team members Alex and Gavin have been invited as users with access
-- Functions are deployed directly from our GitHub repository
-- Enables secure, scalable API endpoints for Calendly integration
-
-### Google Sheets
-- Serves as the system of record for all lead and call data
-- Tracks call history, status, and outcomes
-- Maintains a log of all interactions
-
-### n8n
-- Orchestrates the entire workflow
-- Manages the flow of data between different services
-- Handles scheduling, webhooks, and error management
-
-### Slack
-- Delivers real-time notifications about call outcomes
-- Alerts the team to errors or issues requiring attention
-
 ## Booking Process Details
 
 When the AI voice agent (Emma) successfully books a meeting:
@@ -421,97 +383,6 @@ This integration creates a seamless booking experience without requiring the cus
 - The workflow logs all call activity to Google Sheets
 - Error notifications are sent to Slack
 - Call recordings and transcripts are available for quality review
-
-### Key Technical Interactions:
-
-1. **Lead Processing**:
-   - n8n Close Sync workflow retrieves leads from Close CRM
-   - Data is stored in Google Sheets for access by the calling workflow
-
-2. **Call Orchestration**:
-   - n8n SDR Emma workflow prepares call data and parameters
-   - Cloudflare `get-calendly-times.ts` worker retrieves available time slots
-   - Call script is pulled from Google Docs
-   - VAPI initiates the call with appropriate context and scheduling information
-
-3. **Conversation Management**:
-   - VAPI handles real-time conversation using GPT-4o for intelligence
-   - Deepgram Nova 2 transcribes the prospect's speech
-   - Eleven Labs generates Emma's voice responses
-
-4. **Booking Process**:
-   - When a prospect agrees to a time, VAPI invokes the `bookCalendlyTime` tool
-   - Cloudflare `book-calendly-time.ts` worker handles the Calendly booking
-   - Booking confirmation is returned to VAPI to relay to the prospect
-   - n8n workflow updates Google Sheets and sends Slack notifications
-
-
-
-## Conclusion
-
-The "Voice Agent - Booking SDR Emma" workflow automates the entire process of scheduling sales demos via phone calls. By combining multiple technologies including n8n workflows, Google Workspace, Calendly, Close CRM, and voice API capabilities, it enables efficient lead processing while maintaining detailed records of all interactions.
-
-This integrated system represents an innovative approach to customer engagement—one where automation and AI assist in streamlining sales processes while maintaining personalized interactions. As the component technologies and integration workflows continue to evolve, the possibilities for sophisticated business applications will expand dramatically across multiple channels and use cases.
-
-## API Reference and Services
-
-The system integrates several essential services that each play important roles in the overall workflow:
-
-### VAPI (Voice API)
-- **Purpose**: Provides voice communication capabilities
-- **Environments**:
-  - **Production Assistant**: [Emma - PROD](https://dashboard.vapi.ai/assistants/c10e09b1-92b6-4880-a33c-77c7c96f125f)
-  - **Development Assistant**: [Emma - DEV](https://dashboard.vapi.ai/assistants/cd9d20f9-5915-4b42-b9dd-27fe67160e53)
-- **Technology Stack**:
-  - **Large Language Model**: GPT-4o for conversation intelligence
-  - **Speech Recognition**: Deepgram Nova 2 model
-  - **Voice Synthesis**: Eleven Labs Eleven Turbo v2.5 with voice ID TbMNBJ27fH2U0VgpSNko
-  - **Telephony**: Twilio for outbound calling using our dedicated phone number
-- **Custom Tools**:
-  - `bookCalendlyTime`: Custom tool that enables the voice assistant to book appointments directly during the call
-- **Endpoints Used**:
-  - `POST: https://api.vapi.ai/call` - Initiates a voice call
-  - `GET: [call status endpoint]` - Retrieves call status
-
-### Twilio
-- **Purpose**: Telephony service provider
-- **Integration**: Integrated with VAPI to enable outbound calling
-- **Features**:
-  - Provides dedicated phone number for the voice agent
-  - Handles telephone network connectivity
-  - Enables caller ID presentation to prospects
-
-### n8n Workflow Engine
-- **Purpose**: Central workflow orchestration platform
-- **Key Functions**:
-  - Connects all system components
-  - Manages timing and scheduling logic
-  - Processes data between services
-  - Handles error conditions and retries
-- **Environments**:
-  - Production workflows described in the Environment Setup section
-  - Development workflows for testing
-
-### Calendly
-- **Purpose**: Appointment scheduling platform
-- **Integration Points**:
-  - Web page for available time slots
-  - Booking functionality via tool calls
-- **Configuration**: 
-  - Uses timezone-aware timestamps
-  - Formatted times for natural conversation
-
-### Close CRM
-- **Purpose**: Lead management system
-- **Integration**: 
-  - Smart view provides filtered leads
-  - Webhook integration for status updates
-- **Identifier**: Unique Close IDs track leads across systems
-
-### Google Workspace
-- **Google Sheets**: Data storage and tracking
-- **Google Docs**: Dynamic prompt management
-- **Integration**: Read/write operations via n8n
 
 ## Cloudflare Workers
 
@@ -585,20 +456,6 @@ The call window checker uses the following parameters:
 - For testing purposes, the Prompt Tester webhook can be accessed via the test interface
 - Production webhooks should only be called by authorized systems
 
-## Document Maintenance
-
-This documentation should be updated when:
-1. New integrations are added to the workflow
-2. Call scripts or prompts are significantly modified
-3. Data structure in the Google Sheet changes
-4. New workflows are added to the system
-5. API endpoints or credentials are updated
-6. VAPI assistant configurations are modified
-
-> Code management and documentation repository: https://github.com/home-iq/dev-team-stats-tracker
-
-Last updated: March 20, 2025 
-
 ## Infrastructure and Hosting
 
 The system is hosted on dedicated infrastructure to ensure performance and reliability:
@@ -634,18 +491,8 @@ The system uses secure API integration methods for all services:
 - **VAPI**: Secret key available in the [CREDENTIALS section](#credentials)
 - **Cloudflare Workers**: Environment variables stored in Cloudflare dashboard for each worker
 
+
 ## CREDENTIALS
 
-**IMPORTANT**: This section contains sensitive information that can be accessed securely here: https://docs.google.com/document/d/1kmBrVdI3BEglhO79IHj9lvi8TtCBswrmYEgDb1Ff8kI/edit?tab=t.cyj23j21idqk#heading=h.2l0rddie5g73
+**IMPORTANT**: This section contains sensitive information that can be accessed securely here: https://docs.google.com/document/d/1kmBrVdI3BEglhO79IHj9lvi8TtCBswrmYEgDb1Ff8kI/edit?tab=t.cyj23j21idqk
 
-
-### Infrastructure Maintenance
-
-Regular maintenance should include:
-
-- Rotating API credentials on a scheduled basis
-- Server updates and security patches
-- Backup of n8n workflows and configurations
-- Monitoring of service performance and availability
-
-This infrastructure setup provides a secure and reliable foundation for the voice agent system while maintaining separation between development and production environments.
