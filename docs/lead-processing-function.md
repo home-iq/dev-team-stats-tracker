@@ -30,6 +30,11 @@ const salespersons = [
     calendar_url: "https://api.calendly.com/event_types/c4fe39b5-c6bb-41fa-a035-1d3c79de3c7e",
     calendar_web_url: "https://calendly.com/jon-myhomeiq/30min"
   },
+  { 
+    name: "Shannon Luckey", 
+    calendar_url: "https://api.calendly.com/event_types/bdb0565c-c59a-47a3-8a90-bc4939d89230",
+    calendar_web_url: "https://calendly.com/shannon-myhomeiq/full-product-demo"
+  },
   // Add more salespersons as needed
 ];
 
@@ -39,6 +44,26 @@ const backupCalendarWebUrl = "https://calendly.com/d/cqs4-2yf-wdt/myhomeiq-produ
 ```
 
 To add or modify salespersons, simply update the array with the correct name (exactly as it appears in the Google Sheet), their Calendly API event type URL, and their public-facing Calendly web URL.
+
+## How to Get Calendly API Event Type ID
+
+When adding a new salesperson to the configuration array, you'll need to find their Calendly API event type ID. The easiest way to do this is:
+
+1. **Load the Calendly web URL** in your browser (e.g., `https://calendly.com/username/30min`)
+2. **Open Developer Tools** (press F12 or right-click and select "Inspect")
+3. **Go to the Network tab** in the Developer Tools
+4. **Refresh the page**
+5. **Look for a request** with a name that starts with "range?"
+6. **Click on that request** and examine the request URL
+7. **Extract the event_types ID** from the URL
+8. **Format the API URL** by combining `https://api.calendly.com/event_types/` with the extracted ID
+
+For example, if you found an ID like `c4fe39b5-c6bb-41fa-a035-1d3c79de3c7e`, the complete API URL would be:
+```
+https://api.calendly.com/event_types/c4fe39b5-c6bb-41fa-a035-1d3c79de3c7e
+```
+
+Add this to the `calendar_url` field in the configuration array for the new salesperson.
 
 ## Lead Eligibility Criteria
 
@@ -116,6 +141,11 @@ const salespersons = [
     name: "Jon Shumate", 
     calendar_url: "https://api.calendly.com/event_types/c4fe39b5-c6bb-41fa-a035-1d3c79de3c7e",
     calendar_web_url: "https://calendly.com/jon-myhomeiq/30min"
+  },
+  { 
+    name: "Shannon Luckey", 
+    calendar_url: "https://api.calendly.com/event_types/bdb0565c-c59a-47a3-8a90-bc4939d89230",
+    calendar_web_url: "https://calendly.com/shannon-myhomeiq/full-product-demo"
   },
   // Add more salespersons as needed
 ];
