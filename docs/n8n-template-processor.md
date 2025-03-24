@@ -48,6 +48,11 @@ if (phone.length === 10) {
 // Get available times from Calendly
 const rawAvailableTimes = $('Get Calendly Times').first().json.data.startTimes;
 
+// Check if there are available times, if not throw a clear error
+if (!rawAvailableTimes || rawAvailableTimes.length === 0) {
+  throw new Error("No demo times available on this calendar.");
+}
+
 // Function to format time in 12-hour format (e.g., "9:30am")
 function formatTimeIn12HourFormat(date) {
   let hours = date.getHours();
